@@ -1,6 +1,17 @@
+version: "3.9"
+
+networks:
+  frontend_net:
+    driver: bridge
+  inference_net:
+    driver: bridge
+    internal: true   # No internet egress — vLLM air-gapped
+
 services:
   postgres:
     image: postgres:16-alpine
+    networks:
+      - frontend_net
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-shieldlayer}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
@@ -16,6 +27,8 @@ services:
 
   vllm:
     image: vllm/vllm-openai:latest
+    networks:
+      - inference_net    # inference_net only — no frontend_net
     command: ["--model", "${VLLM_MODEL}", "--served-model-name", "${VLLM_MODEL}"]
     volumes:
       - ${HF_HOME:-~/.cache/huggingface}:/root/.cache/huggingface
@@ -38,11 +51,27 @@ services:
     env_file: .env
     ports:
       - "8080:8000"
+    networks:
+      - frontend_net
+      - inference_net
     depends_on:
       postgres:
         condition: service_healthy
       vllm:
         condition: service_healthy
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    ports:
+      - "8501:8501"
+    networks:
+      - frontend_net
+    env_file:
+      - .env
+    depends_on:
+      - postgres
 
 volumes:
   pgdata:
