@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: shieldlayer
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: shieldlayer
+      POSTGRES_USER: ${POSTGRES_USER:-shieldlayer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      POSTGRES_DB: ${POSTGRES_DB:-shieldlayer}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
