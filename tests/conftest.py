@@ -10,7 +10,7 @@ def test_settings():
         vllm_base_url="http://localhost:9999",
         postgres_dsn="postgresql://test:test@localhost:5433/test",
         audit_token="test-token",
-        guardian_max_retries=3,
+        guardian_max_retries=2,
     )
 
 
