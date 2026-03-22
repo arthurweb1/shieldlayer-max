@@ -8,6 +8,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from app.config import get_settings
 from app.api.routes import router as api_router
 from app.middleware.auth import RBACMiddleware
+from app.middleware.config_guard import ConfigGuardMiddleware
 from app.engine.shield import ShieldEngine
 from app.engine.guardian import GuardianEngine
 from app.engine.vault import Vault
@@ -86,6 +87,7 @@ def create_app(
         app.state.vault = _vault
         app.state.router = _router
 
+    app.add_middleware(ConfigGuardMiddleware)
     app.add_middleware(RBACMiddleware)
     app.include_router(api_router)
 

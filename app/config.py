@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +22,12 @@ class Settings(BaseSettings):
 
     # Vault
     vault_session_ttl_seconds: int = 300  # Auto-purge mapping after this many seconds
+
+    # Setup / Config guard
+    config_ready: bool = False
+    compliance_strictness: str = "strict"
+    postgres_ro_password: str = ""
+    cloud_price_per_1k_tokens: float = 0.002
 
 
 @lru_cache(maxsize=1)
