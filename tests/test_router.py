@@ -79,3 +79,48 @@ async def test_stream_yields_chunks(local_router):
 def test_invalid_backend_raises():
     with pytest.raises(ValueError, match="backend_type"):
         HybridRouter(backend_type="INVALID", base_url="http://x", model="m", api_key="")
+
+
+# --- Policy routing tests ---
+from app.middleware.auth import RequestIdentity
+
+def test_route_for_admin_org_returns_cloud_router():
+    """Admin org gets CLOUD backend when cloud_config is provided."""
+    router = HybridRouter(
+        backend_type="LOCAL",
+        base_url="http://local:8000",
+        model="local-model",
+        api_key="",
+        local_config={"base_url": "http://local:8000", "model": "local-model"},
+        cloud_config={"base_url": "https://api.openai.com/v1", "model": "gpt-4o", "api_key": "sk-test"},
+    )
+    identity = RequestIdentity(org_id="admin", role="admin", level=2)
+    routed = router.route_for(identity)
+    assert routed._base_url == "https://api.openai.com/v1"
+    assert routed._api_key == "sk-test"
+
+
+def test_route_for_non_admin_org_always_local():
+    """Non-admin org is always routed to LOCAL regardless of backend_type."""
+    router = HybridRouter(
+        backend_type="CLOUD",
+        base_url="https://api.openai.com/v1",
+        model="gpt-4o",
+        api_key="sk-test",
+        local_config={"base_url": "http://vllm:8000", "model": "llama"},
+        cloud_config={"base_url": "https://api.openai.com/v1", "model": "gpt-4o", "api_key": "sk-test"},
+    )
+    identity = RequestIdentity(org_id="rd", role="analyst", level=1)
+    routed = router.route_for(identity)
+    assert routed._base_url == "http://vllm:8000"
+    assert routed._backend == "LOCAL"
+
+
+def test_route_for_without_dual_config_falls_back_to_self():
+    """If no dual config provided, route_for returns a clone of self."""
+    router = HybridRouter(
+        backend_type="LOCAL", base_url="http://vllm:8000", model="llama", api_key=""
+    )
+    identity = RequestIdentity(org_id="rd", role="analyst", level=1)
+    routed = router.route_for(identity)
+    assert routed._base_url == "http://vllm:8000"
