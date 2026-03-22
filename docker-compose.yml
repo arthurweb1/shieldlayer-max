@@ -1,0 +1,45 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shieldlayer
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: shieldlayer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shieldlayer"]
+      interval: 5s
+      retries: 5
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    command: ["--model", "${VLLM_MODEL}", "--served-model-name", "${VLLM_MODEL}"]
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      retries: 10
+
+  app:
+    build: .
+    env_file: .env
+    ports:
+      - "8080:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
+
+volumes:
+  pgdata:
