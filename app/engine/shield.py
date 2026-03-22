@@ -30,6 +30,8 @@ _NON_PII_ENTITY_TYPES: frozenset[str] = frozenset({
 
 
 class ShieldEngine:
+    _NON_PII_ENTITY_TYPES: frozenset = _NON_PII_ENTITY_TYPES
+
     def __init__(self, synonym_pairs_path: Optional[str] = None):
         self._analyzer = AnalyzerEngine()
         self._anonymizer = AnonymizerEngine()
@@ -41,40 +43,40 @@ class ShieldEngine:
 
     def mask(self, text: str) -> MaskResult:
         """Detect PII, replace with pseudonyms, return reverse mapping for de-anonymization."""
-        raw_results = self._analyzer.analyze(text=text, language="en")
-        # Filter out entity types that are not personally identifiable data
-        results = [r for r in raw_results if r.entity_type not in _NON_PII_ENTITY_TYPES]
-        if not results:
+        results = self._analyzer.analyze(text=text, language="en")
+        # Filter to only personal identifiers
+        pii_results = [
+            r for r in results
+            if r.entity_type not in self._NON_PII_ENTITY_TYPES
+        ]
+        if not pii_results:
             return MaskResult(masked_text=text, mapping={})
 
-        # Build entity-type counters for sequential pseudonym names
-        counters: dict[str, int] = {}
-        forward: dict[str, str] = {}  # original → pseudonym
-        operators: dict[str, OperatorConfig] = {}
+        # Sort spans by start position descending to avoid index shifting during replacement
+        sorted_results = sorted(pii_results, key=lambda x: x.start, reverse=True)
 
-        for r in sorted(results, key=lambda x: x.start):
+        counters: dict[str, int] = {}
+        forward: dict[str, str] = {}  # original text → pseudonym
+        masked = text
+
+        for r in sorted_results:
             original = text[r.start:r.end]
             entity_type = r.entity_type
-            counters[entity_type] = counters.get(entity_type, 0) + 1
-            pseudonym = f"{entity_type}_{counters[entity_type]:03d}"
             if original not in forward:
-                forward[original] = pseudonym
-            operators[entity_type] = OperatorConfig(
-                "replace", {"new_value": forward[original]}
-            )
+                counters[entity_type] = counters.get(entity_type, 0) + 1
+                forward[original] = f"{entity_type}_{counters[entity_type]:03d}"
+            # Replace this specific span in the masked text
+            masked = masked[:r.start] + forward[original] + masked[r.end:]
 
-        anonymized = self._anonymizer.anonymize(
-            text=text, analyzer_results=results, operators=operators
-        )
         # Reverse mapping: pseudonym → original (for de-anonymization)
         reverse = {v: k for k, v in forward.items()}
-        return MaskResult(masked_text=anonymized.text, mapping=reverse)
+        return MaskResult(masked_text=masked, mapping=reverse)
 
     def deanonymize(self, text: str, mapping: dict) -> str:
-        """Restore pseudonyms to original values using the request-scoped reverse map."""
+        """Restore pseudonyms to originals. Sorts by key length desc to avoid partial matches."""
         result = text
-        for pseudonym, original in mapping.items():
-            result = result.replace(pseudonym, original)
+        for pseudonym in sorted(mapping.keys(), key=len, reverse=True):
+            result = result.replace(pseudonym, mapping[pseudonym])
         return result
 
     def watermark(self, text: str, request_id: str) -> str:
@@ -93,11 +95,17 @@ class ShieldEngine:
         for pair in pairs:
             a, b = pair[0], pair[1]
             src, dst = (a, b) if rng.random() > 0.5 else (b, a)
-            if (f" {src} " in result
-                    or result.lower().startswith(src + " ")
-                    or result.lower().endswith(" " + src)):
-                result = result.replace(src, dst, 1)
-                injections += 1
+            text_lower = result.lower()
+            src_lower = src.lower()
+            if (f" {src_lower} " in text_lower
+                    or text_lower.startswith(src_lower + " ")
+                    or text_lower.endswith(" " + src_lower)):
+                import re
+                pattern = re.compile(re.escape(src), re.IGNORECASE)
+                new_result = pattern.sub(dst, result, count=1)
+                if new_result != result:  # only count if substitution actually happened
+                    result = new_result
+                    injections += 1
 
         # Fallback: if fewer than 3 substitutions, append a semantically neutral tag
         if injections < 3:

@@ -80,3 +80,21 @@ def test_watermark_returns_string(shield):
 def test_watermark_seed_from_request_id():
     seed = int(hashlib.sha256("req-abc".encode()).hexdigest()[:8], 16)
     assert seed > 0
+
+
+def test_mask_two_persons_get_different_pseudonyms(shield):
+    text = "Alice called Bob about the contract."
+    result = shield.mask(text)
+    assert "Alice" not in result.masked_text
+    assert "Bob" not in result.masked_text
+    # Both should be masked with different pseudonyms
+    assert len(result.mapping) == 2
+    pseudonyms = list(result.mapping.keys())
+    assert pseudonyms[0] != pseudonyms[1]
+
+
+def test_mask_email_gets_email_pseudonym(shield):
+    text = "Contact max@example.com for support."
+    result = shield.mask(text)
+    assert "max@example.com" not in result.masked_text
+    assert any("EMAIL_" in k for k in result.mapping.keys())
