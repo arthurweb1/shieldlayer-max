@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,7 +10,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U shieldlayer"]
       interval: 5s
+      timeout: 5s
       retries: 5
+      start_period: 10s
 
   vllm:
     image: vllm/vllm-openai:latest
@@ -26,9 +27,11 @@ services:
               count: 1
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
+      timeout: 10s
       retries: 10
+      start_period: 60s
 
   app:
     build: .
