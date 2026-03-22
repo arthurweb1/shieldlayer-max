@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShieldLayer Max — Obsidian Vault Overlay</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://api.fontshare.com">
+  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
+  <style>
+    /* ═══════════════════════════════════════════════════════════
+       DESIGN TOKENS — OBSIDIAN VAULT SYSTEM
+    ═══════════════════════════════════════════════════════════ */
+    :root {
+      --obsidian:        #0D0D0D;
+      --obsidian-glass:  rgba(13, 13, 13, 0.88);
+      --cyber-lime:      #DFFF00;
+      --cyber-lime-glow: rgba(223, 255, 0, 0.15);
+      --cyber-lime-dim:  rgba(223, 255, 0, 0.08);
+      --cyber-lime-4:    rgba(223, 255, 0, 0.04);
+      --ghost-white:     #F8F8F8;
+      --ghost-50:        rgba(248, 248, 248, 0.50);
+      --ghost-20:        rgba(248, 248, 248, 0.20);
+      --ghost-10:        rgba(248, 248, 248, 0.10);
+      --ghost-06:        rgba(248, 248, 248, 0.06);
+      --ghost-03:        rgba(248, 248, 248, 0.03);
+      --danger:          #FF2D55;
+      --font-display:    'Clash Display', 'Space Grotesk', sans-serif;
+      --font-mono:       'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; min-height: 100vh;
+      background: var(--obsidian);
+      color: var(--ghost-white);
+      font-family: var(--font-mono);
+      overflow-x: hidden;
+    }
+
+    /* ── PAGE BACKGROUND: subtle CRT scanline texture + radial liminal glow ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0px,
+          transparent 3px,
+          rgba(0,0,0,0.12) 3px,
+          rgba(0,0,0,0.12) 4px
+        ),
+        radial-gradient(ellipse 70% 50% at 70% 15%, rgba(223,255,0,0.025) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 60% at 15% 85%, rgba(223,255,0,0.015) 0%, transparent 70%);
+    }
+
+    /* ── GRID OVERLAY: blueprint grid for depth ── */
+    body::after {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        linear-gradient(rgba(223,255,0,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(223,255,0,0.018) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%);
+    }
+
+    .page {
+      position: relative; z-index: 1;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       HEADER
+    ═══════════════════════════════════════════════════════════ */
+    .header {
+      padding: 20px 40px;
+      border-bottom: 1px solid var(--ghost-06);
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(13,13,13,0.6);
+      backdrop-filter: blur(8px);
+    }
+
+    .logo {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      color: var(--ghost-white);
+      letter-spacing: 0.1em; text-transform: uppercase;
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .logo-emblem {
+      width: 30px; height: 30px;
+      border: 1.5px solid var(--cyber-lime);
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      box-shadow: 0 0 12px rgba(223,255,0,0.15), inset 0 0 8px rgba(223,255,0,0.05);
+    }
+
+    .logo-emblem::before {
+      content: '';
+      width: 10px; height: 10px;
+      background: var(--cyber-lime);
+      clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+      box-shadow: 0 0 10px rgba(223,255,0,0.6);
+    }
+
+    .header-right {
+      display: flex; align-items: center; gap: 24px;
+    }
+
+    .header-pill {
+      font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--ghost-50);
+      padding: 4px 10px;
+      border: 1px solid var(--ghost-10);
+    }
+
+    .header-pill--active {
+      color: var(--cyber-lime);
+      border-color: rgba(223,255,0,0.25);
+      background: rgba(223,255,0,0.04);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       MAIN DEMO SCENE
+    ═══════════════════════════════════════════════════════════ */
+    .scene {
+      max-width: 860px; width: 100%;
+      margin: 0 auto;
+      padding: 56px 40px 80px;
+    }
+
+    .scene-eyebrow {
+      font-size: 9px; letter-spacing: 0.25em; text-transform: uppercase;
+      color: var(--ghost-20);
+      margin-bottom: 40px;
+      display: flex; align-items: center; gap: 16px;
+    }
+
+    .scene-eyebrow::before, .scene-eyebrow::after {
+      content: ''; display: block;
+      width: 24px; height: 1px;
+      background: var(--ghost-20);
+    }
+
+    /* ── Chat window ── */
+    .chat-window {
+      background: var(--ghost-03);
+      border: 1px solid var(--ghost-10);
+      box-shadow:
+        inset 0 0 40px var(--cyber-lime-4),
+        0 0 0 1px rgba(0,0,0,0.5);
+    }
+
+    .chat-topbar {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--ghost-06);
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(0,0,0,0.3);
+    }
+
+    .chat-topbar__left {
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .traffic-lights {
+      display: flex; gap: 5px;
+    }
+
+    .tl { width: 8px; height: 8px; background: var(--ghost-10); }
+    .tl--red   { background: rgba(255,59,48,0.6); }
+    .tl--amber { background: rgba(255,159,10,0.6); }
+    .tl--green { background: var(--cyber-lime); opacity: 0.8; }
+
+    .chat-topbar__title {
+      font-family: var(--font-display);
+      font-size: 10px; font-weight: 600;
+      color: var(--ghost-20);
+      letter-spacing: 0.15em; text-transform: uppercase;
+    }
+
+    .chat-topbar__status {
+      font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--cyber-lime);
+      opacity: 0.6;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .chat-topbar__status::before {
+      content: '';
+      width: 5px; height: 5px;
+      background: var(--cyber-lime);
+      animation: statusPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes statusPulse {
+      0%, 100% { opacity: 0.8; box-shadow: 0 0 0 0 rgba(223,255,0,0.4); }
+      50% { opacity: 0.4; box-shadow: 0 0 0 4px rgba(223,255,0,0); }
+    }
+
+    /* Messages */
+    .chat-messages { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+
+    .msg {
+      display: flex; gap: 14px; align-items: flex-start;
+    }
+
+    .msg__avatar {
+      width: 28px; height: 28px;
+      border: 1px solid var(--ghost-10);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ghost-20);
+      flex-shrink: 0;
+      font-family: var(--font-display);
+    }
+
+    .msg--user .msg__avatar {
+      border-color: rgba(223,255,0,0.2);
+      color: var(--cyber-lime);
+      background: rgba(223,255,0,0.03);
+    }
+
+    .msg__body { flex: 1; }
+
+    .msg__role {
+      font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+      margin-bottom: 6px;
+      color: var(--ghost-20);
+    }
+
+    .msg--user .msg__role { color: rgba(223,255,0,0.5); }
+
+    .msg__text {
+      font-size: 13px; line-height: 1.75;
+      color: rgba(248,248,248,0.75);
+    }
+
+    .msg__text mark {
+      background: rgba(223,255,0,0.12);
+      color: var(--cyber-lime);
+      padding: 0 3px;
+    }
+
+    /* ── Input area ── */
+    .input-zone {
+      padding: 16px 20px 20px;
+      border-top: 1px solid var(--ghost-06);
+      position: relative;
+    }
+
+    .input-wrapper {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pii-input {
+      width: 100%;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--ghost-10);
+      padding: 14px 18px;
+      color: var(--ghost-white);
+      font-family: var(--font-mono);
+      font-size: 13px; line-height: 1.65;
+      resize: none; outline: none;
+      min-height: 80px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      border-radius: 0;
+    }
+
+    .pii-input:focus {
+      border-color: var(--ghost-20);
+    }
+
+    .pii-input.scanned {
+      border-color: var(--cyber-lime) !important;
+      box-shadow: 0 0 0 1px rgba(223,255,0,0.1), inset 0 0 16px rgba(223,255,0,0.03);
+    }
+
+    .pii-input::placeholder { color: rgba(248,248,248,0.15); }
+
+    /* ── Scanline overlay ── */
+    .scanline-overlay {
+      position: absolute; inset: 0;
+      pointer-events: none; overflow: hidden;
+      opacity: 0; transition: opacity 0.1s;
+    }
+    .scanline-overlay.active { opacity: 1; }
+
+    .scanline-fill {
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 0%;
+      background: linear-gradient(
+        to bottom,
+        rgba(223,255,0,0.06) 0%,
+        rgba(223,255,0,0.02) 100%
+      );
+    }
+    .scanline-fill.run { animation: scanFill 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+    @keyframes scanFill { to { height: 100%; } }
+
+    .scanline-beam {
+      position: absolute; left: 0; right: 0;
+      height: 2px;
+      background: var(--cyber-lime);
+      box-shadow:
+        0 0 4px 1px var(--cyber-lime),
+        0 0 16px 4px rgba(223,255,0,0.5),
+        0 0 40px 8px rgba(223,255,0,0.2);
+      transform: translateY(-4px);
+    }
+    .scanline-beam.run { animation: scanBeam 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+    @keyframes scanBeam {
+      0%   { transform: translateY(-4px); opacity: 1; }
+      80%  { opacity: 0.8; }
+      100% { transform: translateY(82px); opacity: 0; }
+    }
+
+    /* ── Actions ── */
+    .input-actions {
+      display: flex; gap: 10px; margin-top: 12px;
+    }
+
+    .btn {
+      font-family: var(--font-display);
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      padding: 9px 18px;
+      cursor: pointer; border: 1px solid;
+      transition: all 0.14s ease;
+      white-space: nowrap;
+      border-radius: 0;
+    }
+
+    .btn-primary {
+      background: var(--cyber-lime);
+      border-color: var(--cyber-lime);
+      color: var(--obsidian);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: transparent;
+      color: var(--cyber-lime);
+      box-shadow: 0 0 20px rgba(223,255,0,0.15);
+    }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: var(--ghost-10);
+      color: var(--ghost-20);
+    }
+    .btn-ghost:hover { border-color: var(--ghost-50); color: var(--ghost-50); }
+
+
+    /* ═══════════════════════════════════════════════════════════
+       PII TOOLTIP
+    ═══════════════════════════════════════════════════════════ */
+    .pii-tooltip {
+      position: absolute;
+      left: 0; top: calc(100% + 8px);
+      width: 100%; max-width: 500px;
+      z-index: 1000;
+
+      background: var(--obsidian-glass);
+      backdrop-filter: blur(20px) saturate(1.2);
+      -webkit-backdrop-filter: blur(20px) saturate(1.2);
+      border: 1px solid var(--cyber-lime);
+      box-shadow:
+        0 0 0 1px rgba(223,255,0,0.06),
+        0 12px 40px rgba(0,0,0,0.9),
+        inset 0 0 30px var(--cyber-lime-4),
+        0 0 60px rgba(223,255,0,0.06);
+
+      opacity: 0;
+      transform: translateY(-6px) scaleY(0.96);
+      transform-origin: top center;
+      pointer-events: none;
+      transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.34,1.56,0.64,1);
+    }
+
+    .pii-tooltip.show {
+      opacity: 1;
+      transform: translateY(0) scaleY(1);
+      pointer-events: all;
+    }
+
+    /* Header */
+    .tt-head {
+      padding: 11px 16px 10px;
+      border-bottom: 1px solid rgba(223,255,0,0.12);
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(0,0,0,0.25);
+    }
+
+    .tt-title {
+      font-family: var(--font-display);
+      font-size: 11px; font-weight: 700;
+      color: var(--cyber-lime);
+      letter-spacing: 0.18em; text-transform: uppercase;
+      display: flex; align-items: center; gap: 7px;
+    }
+
+    .tt-title__warn {
+      font-size: 13px;
+      animation: warnBlink 1.4s step-start infinite;
+    }
+    @keyframes warnBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    .tt-status {
+      font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--ghost-50);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .tt-dot {
+      width: 5px; height: 5px;
+      background: var(--cyber-lime);
+      animation: dotBlink 0.55s step-end infinite;
+    }
+    @keyframes dotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .tt-dot.done { animation: none; }
+
+    /* Entity list */
+    .tt-entities {
+      padding: 12px 16px 8px;
+      display: flex; flex-direction: column; gap: 7px;
+    }
+
+    .entity-row {
+      display: flex; align-items: center; gap: 0;
+      font-family: var(--font-mono); font-size: 11.5px;
+      animation: entityFadeIn 0.3s ease both;
+    }
+
+    @keyframes entityFadeIn {
+      from { opacity: 0; transform: translateX(-6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .entity-type {
+      font-size: 10px; font-weight: 600;
+      color: var(--cyber-lime);
+      letter-spacing: 0.06em;
+      width: 130px; flex-shrink: 0;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .entity-type::before { content: '▸'; font-size: 7px; opacity: 0.5; }
+
+    .entity-arrow {
+      color: var(--ghost-20);
+      padding: 0 10px;
+      font-size: 10px;
+    }
+
+    .entity-original {
+      color: var(--ghost-20);
+      text-decoration: line-through;
+      text-decoration-color: rgba(248,248,248,0.15);
+      font-size: 11px;
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .entity-mask {
+      color: var(--ghost-white);
+      font-size: 11px; font-weight: 500;
+      margin-left: 10px;
+      padding: 2px 8px;
+      border: 1px solid var(--ghost-10);
+      background: rgba(248,248,248,0.03);
+      white-space: nowrap; flex-shrink: 0;
+    }
+
+    /* Progress bar */
+    .tt-progress {
+      margin: 4px 16px 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--ghost-06);
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .tt-progress__label {
+      font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--ghost-20);
+      white-space: nowrap;
+    }
+
+    .tt-progress__track {
+      flex: 1; height: 2px;
+      background: var(--ghost-06);
+      overflow: hidden;
+    }
+
+    .tt-progress__fill {
+      height: 100%; width: 0;
+      background: var(--cyber-lime);
+      box-shadow: 0 0 8px var(--cyber-lime);
+      transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .tt-progress__fill.go { width: 100%; }
+    .tt-progress__fill.done { box-shadow: 0 0 4px var(--cyber-lime); }
+
+    /* Compliance section */
+    .compliance-strip {
+      border-top: 1px solid rgba(223,255,0,0.1);
+    }
+
+    .compliance-trigger {
+      width: 100%;
+      background: transparent;
+      border: none; cursor: pointer;
+      padding: 9px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-family: var(--font-display);
+      font-size: 9px; font-weight: 600;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--ghost-20);
+      transition: color 0.14s, background 0.14s;
+    }
+    .compliance-trigger:hover { color: var(--ghost-50); background: rgba(248,248,248,0.02); }
+    .compliance-trigger.open { color: var(--ghost-white); }
+
+    .compliance-caret {
+      font-size: 7px;
+      transition: transform 0.2s;
+    }
+    .compliance-trigger.open .compliance-caret { transform: rotate(180deg); }
+
+    .compliance-body {
+      max-height: 0; overflow: hidden;
+      transition: max-height 0.28s ease;
+    }
+    .compliance-body.open { max-height: 220px; }
+
+    .compliance-inner { padding: 4px 16px 16px; }
+
+    .law-ref {
+      margin-bottom: 10px;
+    }
+    .law-ref__tag {
+      font-family: var(--font-display);
+      font-size: 9px; font-weight: 700;
+      color: var(--cyber-lime);
+      letter-spacing: 0.14em; text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+    .law-ref__text {
+      font-size: 11px; line-height: 1.6;
+      color: var(--ghost-50);
+    }
+
+    .compliance-action {
+      margin-top: 8px; padding-top: 8px;
+      border-top: 1px solid var(--ghost-06);
+      font-size: 10px; color: var(--ghost-20);
+      line-height: 1.6; letter-spacing: 0.02em;
+    }
+    .compliance-action em {
+      font-style: normal;
+      color: var(--ghost-50);
+    }
+
+
+    /* ═══════════════════════════════════════════════════════════
+       FLOATING SHIELD BADGE
+    ═══════════════════════════════════════════════════════════ */
+    .shield-badge {
+      position: fixed; bottom: 28px; right: 28px;
+      z-index: 9999;
+      cursor: pointer;
+    }
+
+    .badge-core {
+      background: var(--obsidian-glass);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--cyber-lime);
+      box-shadow:
+        0 0 0 1px rgba(223,255,0,0.05),
+        0 6px 28px rgba(0,0,0,0.8),
+        inset 0 0 20px var(--cyber-lime-4),
+        0 0 40px rgba(223,255,0,0.05);
+      padding: 10px 14px;
+      display: flex; align-items: center; gap: 10px;
+      min-width: 162px;
+      transition:
+        box-shadow 0.3s ease,
+        border-color 0.3s ease,
+        min-width 0.3s ease;
+      overflow: hidden;
+    }
+
+    .shield-badge:hover .badge-core,
+    .shield-badge.expanded .badge-core {
+      box-shadow:
+        0 0 0 1px rgba(223,255,0,0.18),
+        0 10px 40px rgba(0,0,0,0.9),
+        inset 0 0 30px rgba(223,255,0,0.06),
+        0 0 70px rgba(223,255,0,0.1);
+    }
+
+    .badge-pulse {
+      width: 8px; height: 8px; flex-shrink: 0;
+      position: relative;
+    }
+    .badge-pulse__core {
+      width: 8px; height: 8px;
+      background: var(--cyber-lime);
+      box-shadow: 0 0 8px var(--cyber-lime);
+      position: relative; z-index: 1;
+    }
+    .badge-pulse__ring {
+      position: absolute; inset: -4px;
+      background: rgba(223,255,0,0.25);
+      animation: ringPulse 2.2s ease-in-out infinite;
+    }
+    @keyframes ringPulse {
+      0%, 100% { transform: scale(1); opacity: 0.6; }
+      60% { transform: scale(2.8); opacity: 0; }
+    }
+
+    .badge-text-group { flex: 1; min-width: 0; }
+
+    .badge-label {
+      font-family: var(--font-display);
+      font-size: 11px; font-weight: 700;
+      color: var(--ghost-white);
+      letter-spacing: 0.12em; text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .badge-sub {
+      font-size: 9px; color: var(--ghost-20);
+      letter-spacing: 0.06em;
+      margin-top: 1px;
+      white-space: nowrap;
+    }
+    .badge-sub .hl { color: var(--cyber-lime); font-weight: 600; }
+
+    .badge-expanded-panel {
+      max-height: 0; overflow: hidden;
+      transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      width: 100%;
+    }
+    .shield-badge:hover .badge-expanded-panel,
+    .shield-badge.expanded .badge-expanded-panel {
+      max-height: 80px;
+    }
+
+    .badge-stats-row {
+      padding-top: 10px;
+      margin-top: 10px;
+      border-top: 1px solid rgba(223,255,0,0.12);
+    }
+    .badge-stats-row__total {
+      font-family: var(--font-mono);
+      font-size: 10px; color: var(--ghost-20);
+      letter-spacing: 0.06em;
+    }
+    .badge-stats-row__total .n { color: var(--cyber-lime); font-weight: 600; }
+    .badge-stats-row__breakdown {
+      font-size: 9px; color: rgba(248,248,248,0.25);
+      letter-spacing: 0.04em;
+      margin-top: 4px;
+    }
+
+    /* Badge flash animation */
+    @keyframes badgeFlash {
+      0%   { box-shadow: 0 0 0 2px rgba(223,255,0,0.6), 0 0 30px rgba(223,255,0,0.4); }
+      100% { box-shadow: 0 0 0 1px rgba(223,255,0,0.05), 0 6px 28px rgba(0,0,0,0.8), inset 0 0 20px var(--cyber-lime-4); }
+    }
+    .badge-core.flash { animation: badgeFlash 0.7s ease-out forwards; }
+
+
+    /* ═══════════════════════════════════════════════════════════
+       GLITCH TEXT
+    ═══════════════════════════════════════════════════════════ */
+    @keyframes glitch-a {
+      0%, 100% { clip-path: inset(0 0 95% 0);  transform: translate(-3px, 0); }
+      25%       { clip-path: inset(30% 0 50% 0); transform: translate(3px, 0); }
+      50%       { clip-path: inset(60% 0 20% 0); transform: translate(-2px, 0); }
+      75%       { clip-path: inset(10% 0 75% 0); transform: translate(2px, 0); }
+    }
+    @keyframes glitch-b {
+      0%, 100% { clip-path: inset(80% 0 5% 0);  transform: translate(3px, 0); }
+      25%       { clip-path: inset(15% 0 65% 0); transform: translate(-3px, 0); }
+      50%       { clip-path: inset(45% 0 35% 0); transform: translate(1px, 0); }
+      75%       { clip-path: inset(70% 0 10% 0); transform: translate(-2px, 0); }
+    }
+
+
+    /* ═══════════════════════════════════════════════════════════
+       STATUS BAR
+    ═══════════════════════════════════════════════════════════ */
+    .status-bar {
+      padding: 10px 40px;
+      border-top: 1px solid var(--ghost-06);
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(0,0,0,0.4);
+    }
+
+    .status-nodes {
+      display: flex; gap: 28px;
+    }
+
+    .snode {
+      font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--ghost-20);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .snode::before {
+      content: '';
+      width: 4px; height: 4px;
+      background: var(--cyber-lime);
+      opacity: 0.7;
+    }
+
+    .status-bar__ver {
+      font-size: 9px; letter-spacing: 0.1em;
+      color: rgba(248,248,248,0.15);
+    }
+
+
+    /* ═══════════════════════════════════════════════════════════
+       CORNER DECORATION
+    ═══════════════════════════════════════════════════════════ */
+    .corner-deco {
+      position: fixed;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .corner-deco--tl {
+      top: 0; left: 0;
+      width: 60px; height: 60px;
+      border-top: 1px solid rgba(223,255,0,0.12);
+      border-left: 1px solid rgba(223,255,0,0.12);
+    }
+    .corner-deco--br {
+      bottom: 0; right: 0;
+      width: 60px; height: 60px;
+      border-bottom: 1px solid rgba(223,255,0,0.12);
+      border-right: 1px solid rgba(223,255,0,0.12);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Corner decorations -->
+<div class="corner-deco corner-deco--tl"></div>
+<div class="corner-deco corner-deco--br"></div>
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  FLOATING SHIELD BADGE               ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="shield-badge" id="shieldBadge">
+  <div class="badge-core" id="badgeCore">
+    <div class="badge-pulse">
+      <div class="badge-pulse__ring"></div>
+      <div class="badge-pulse__core"></div>
+    </div>
+    <div class="badge-text-group">
+      <div class="badge-label">■ Shield Active</div>
+      <div class="badge-sub"><span class="hl" id="badgeCount">0</span> PII events</div>
+      <div class="badge-expanded-panel">
+        <div class="badge-stats-row">
+          <div class="badge-stats-row__total">
+            <span class="n" id="badgeTotalCount">0</span> entities masked this session
+          </div>
+          <div class="badge-stats-row__breakdown" id="badgeBreakdown">
+            Awaiting detection...
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div class="page">
+
+  <!-- ╔════════════╗
+       ║  HEADER    ║
+       ╚════════════╝ -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-emblem"></div>
+      ShieldLayer Max
+    </div>
+    <div class="header-right">
+      <div class="header-pill header-pill--active">EU AI Act · Art. 10/12/13</div>
+      <div class="header-pill">Org: BMW_IT_ADMIN</div>
+      <div class="header-pill">Role: Analyst</div>
+    </div>
+  </header>
+
+  <!-- ╔══════════════════╗
+       ║  DEMO SCENE      ║
+       ╚══════════════════╝ -->
+  <main class="scene">
+    <div class="scene-eyebrow">Interactive Overlay Demo — Browser Extension Prototype</div>
+
+    <div class="chat-window">
+      <!-- Top bar -->
+      <div class="chat-topbar">
+        <div class="chat-topbar__left">
+          <div class="traffic-lights">
+            <div class="tl tl--red"></div>
+            <div class="tl tl--amber"></div>
+            <div class="tl tl--green"></div>
+          </div>
+          <div class="chat-topbar__title">Enterprise AI Gateway · Secure Proxy Session</div>
+        </div>
+        <div class="chat-topbar__status">Shield Intercepting</div>
+      </div>
+
+      <!-- Message history -->
+      <div class="chat-messages">
+        <div class="msg">
+          <div class="msg__avatar">SYS</div>
+          <div class="msg__body">
+            <div class="msg__role">system</div>
+            <div class="msg__text">
+              You are a secure enterprise assistant. All outbound data is intercepted by ShieldLayer Max.
+              PII will be masked before reaching the model endpoint. Responses are watermarked per EU AI Act Art. 12.
+            </div>
+          </div>
+        </div>
+
+        <div class="msg msg--user">
+          <div class="msg__avatar">U</div>
+          <div class="msg__body">
+            <div class="msg__role">user — previous turn</div>
+            <div class="msg__text">
+              Please process a refund for <mark>[PERSON_1]</mark> at <mark>[EMAIL_ADDRESS_1]</mark>.
+              Payment was via IBAN <mark>[IBAN_1]</mark>. Transaction ID: TXN-88220.
+            </div>
+          </div>
+        </div>
+
+        <div class="msg">
+          <div class="msg__avatar">AI</div>
+          <div class="msg__body">
+            <div class="msg__role">assistant</div>
+            <div class="msg__text">
+              Understood. Initiating refund for <mark>[PERSON_1]</mark>. Confirmation will be sent to
+              their registered contact. All personal identifiers have been masked per GDPR Art. 5(1)(c).
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Input zone ── -->
+      <div class="input-zone" id="inputZone">
+        <div class="input-wrapper">
+          <textarea
+            class="pii-input"
+            id="piiInput"
+            rows="3"
+            placeholder="Type a message… (try: 'Bill Hans Mueller, hans@acme.de, IBAN DE89370400440532013000 for €12,500')"></textarea>
+
+          <!-- Scanline overlay -->
+          <div class="scanline-overlay" id="scanlineOverlay">
+            <div class="scanline-fill"  id="scanlineFill"></div>
+            <div class="scanline-beam"  id="scanlineBeam"></div>
+          </div>
+        </div>
+
+        <!-- ── PII Tooltip ── -->
+        <div class="pii-tooltip" id="piiTooltip">
+
+          <!-- Header -->
+          <div class="tt-head">
+            <div class="tt-title">
+              <span class="tt-title__warn">⚠</span>
+              PII Detected
+            </div>
+            <div class="tt-status">
+              <div class="tt-dot" id="ttDot"></div>
+              <span id="ttStatusText">Masking in progress…</span>
+            </div>
+          </div>
+
+          <!-- Entity rows -->
+          <div class="tt-entities" id="ttEntities">
+            <div class="entity-row" style="animation-delay: 0.05s">
+              <div class="entity-type">PERSON</div>
+              <div class="entity-arrow">→</div>
+              <div class="entity-original">Hans Mueller</div>
+              <div class="entity-mask">[PERSON_1]</div>
+            </div>
+            <div class="entity-row" style="animation-delay: 0.12s">
+              <div class="entity-type">EMAIL_ADDRESS</div>
+              <div class="entity-arrow">→</div>
+              <div class="entity-original">hans@acme.de</div>
+              <div class="entity-mask">[EMAIL_ADDRESS_1]</div>
+            </div>
+            <div class="entity-row" style="animation-delay: 0.19s">
+              <div class="entity-type">IBAN</div>
+              <div class="entity-arrow">→</div>
+              <div class="entity-original">DE89 3704 0044…</div>
+              <div class="entity-mask">[IBAN_1]</div>
+            </div>
+            <div class="entity-row" style="animation-delay: 0.26s">
+              <div class="entity-type">CURRENCY_VALUE</div>
+              <div class="entity-arrow">→</div>
+              <div class="entity-original">€12,500</div>
+              <div class="entity-mask">[AMOUNT_1]</div>
+            </div>
+          </div>
+
+          <!-- Progress -->
+          <div class="tt-progress">
+            <span class="tt-progress__label">Masking</span>
+            <div class="tt-progress__track">
+              <div class="tt-progress__fill" id="ttProgressFill"></div>
+            </div>
+          </div>
+
+          <!-- Compliance section -->
+          <div class="compliance-strip">
+            <button class="compliance-trigger" id="complianceTrigger">
+              View Compliance Reasoning
+              <span class="compliance-caret">▼</span>
+            </button>
+            <div class="compliance-body" id="complianceBody">
+              <div class="compliance-inner">
+                <div class="law-ref">
+                  <div class="law-ref__tag">EU AI Act · Article 10</div>
+                  <div class="law-ref__text">Data Governance — Training, validation and testing data shall be relevant, representative, and free from personal data.</div>
+                </div>
+                <div class="law-ref">
+                  <div class="law-ref__tag">GDPR · Art. 5(1)(c)</div>
+                  <div class="law-ref__text">Data Minimisation — Personal data shall be adequate, relevant, and limited to what is necessary in relation to the purposes.</div>
+                </div>
+                <div class="compliance-action">
+                  Action: <em>4 entities masked to [PLACEHOLDER] tokens. Model utility preserved. Vault mapping sealed with TTL=15min. Audit entry queued per Art. 12.</em>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /.pii-tooltip -->
+
+        <!-- Actions -->
+        <div class="input-actions">
+          <button class="btn btn-primary" id="triggerBtn" onclick="runDetection()">
+            ▶ Trigger PII Detection
+          </button>
+          <button class="btn btn-ghost" onclick="resetDemo()">
+            ↺ Reset
+          </button>
+        </div>
+      </div>
+    </div><!-- /.chat-window -->
+  </main>
+
+  <!-- Status bar -->
+  <footer class="status-bar">
+    <div class="status-nodes">
+      <div class="snode">Presidio Engine Online</div>
+      <div class="snode">FAISS Cache ACL Active</div>
+      <div class="snode">Audit Stream Live</div>
+      <div class="snode">Vault TTL 15m</div>
+    </div>
+    <div class="status-bar__ver">ShieldLayer Max v2.4.1 · Build 20260322</div>
+  </footer>
+
+</div><!-- /.page -->
+
+
+<script>
+  /* ══════════════════════════════════════════════
+     STATE
+  ══════════════════════════════════════════════ */
+  let running = false;
+  let session = { total: 0, PERSON: 0, EMAIL: 0, IBAN: 0, CURRENCY: 0 };
+
+  const DEMO_ORIGINAL = "Bill Hans Mueller, hans@acme.de, IBAN DE89370400440532013000 for €12,500 — confirm by Friday.";
+  const DEMO_MASKED   = "Bill [PERSON_1], [EMAIL_ADDRESS_1], IBAN [IBAN_1] for [AMOUNT_1] — confirm by Friday.";
+
+  const GLITCH_CHARS = '█▓▒░▪■□▫▬│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌';
+
+  /* ══════════════════════════════════════════════
+     HELPERS
+  ══════════════════════════════════════════════ */
+  function $(id) { return document.getElementById(id); }
+
+  function glitchFrame(el, orig) {
+    const arr = orig.split('');
+    const out = arr.map(c => {
+      if (c === ' ' || c === '\n') return c;
+      return Math.random() > 0.65
+        ? GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)]
+        : c;
+    });
+    el.value = out.join('');
+    return () => { el.value = orig; };
+  }
+
+  function glitchSequence(el, orig, times, interval, cb) {
+    let i = 0;
+    const id = setInterval(() => {
+      glitchFrame(el, orig);
+      i++;
+      if (i >= times) {
+        clearInterval(id);
+        el.value = orig;
+        if (cb) cb();
+      }
+    }, interval);
+  }
+
+  /* ══════════════════════════════════════════════
+     MAIN DETECTION FLOW
+  ══════════════════════════════════════════════ */
+  function runDetection() {
+    if (running) return;
+    running = true;
+
+    const trigBtn    = $('triggerBtn');
+    const input      = $('piiInput');
+    const overlay    = $('scanlineOverlay');
+    const beam       = $('scanlineBeam');
+    const fill       = $('scanlineFill');
+    const tooltip    = $('piiTooltip');
+    const progressFill = $('ttProgressFill');
+    const ttDot      = $('ttDot');
+    const ttStatus   = $('ttStatusText');
+
+    trigBtn.disabled = true;
+
+    // Phase 0: Pre-fill with PII text
+    input.value = DEMO_ORIGINAL;
+    input.style.borderColor = 'rgba(223,255,0,0.3)';
+
+    // Phase 1: Scanline sweep (100ms delay for visual beat)
+    setTimeout(() => {
+      overlay.classList.add('active');
+      beam.classList.add('run');
+      fill.classList.add('run');
+
+      // Mid-scan glitch bursts
+      setTimeout(() => glitchFrame(input, DEMO_ORIGINAL), 220);
+      setTimeout(() => glitchFrame(input, DEMO_ORIGINAL), 340);
+      setTimeout(() => glitchFrame(input, DEMO_ORIGINAL), 460);
+      setTimeout(() => { input.value = DEMO_ORIGINAL; }, 520);
+
+      // Phase 2: After scan — final glitch cascade → masked text
+      setTimeout(() => {
+        glitchSequence(input, DEMO_ORIGINAL, 6, 45, () => {
+          // Show masked text
+          input.value = DEMO_MASKED;
+          input.classList.add('scanned');
+
+          // Clean up scanline
+          beam.classList.remove('run');
+          fill.classList.remove('run');
+          overlay.classList.remove('active');
+
+          // Phase 3: Show tooltip
+          setTimeout(() => {
+            tooltip.classList.add('show');
+
+            // Animate progress bar
+            setTimeout(() => {
+              progressFill.classList.add('go');
+            }, 80);
+
+            // Mark complete
+            setTimeout(() => {
+              ttDot.classList.add('done');
+              ttStatus.textContent = 'Masking complete';
+              progressFill.classList.add('done');
+
+              // Update badge
+              session.total += 4;
+              session.PERSON   += 1;
+              session.EMAIL    += 1;
+              session.IBAN     += 1;
+              session.CURRENCY += 1;
+              updateBadge();
+
+              running = false;
+              trigBtn.disabled = false;
+            }, 700);
+
+          }, 120);
+        });
+      }, 750);
+    }, 100);
+  }
+
+  /* ══════════════════════════════════════════════
+     BADGE UPDATE
+  ══════════════════════════════════════════════ */
+  function updateBadge() {
+    $('badgeCount').textContent       = session.total;
+    $('badgeTotalCount').textContent  = session.total;
+    $('badgeBreakdown').textContent   =
+      `${session.PERSON} PERSON  |  ${session.EMAIL} EMAIL  |  ${session.IBAN} IBAN  |  ${session.CURRENCY} AMOUNT`;
+
+    const badge = $('shieldBadge');
+    badge.classList.add('expanded');
+
+    // Flash
+    const core = $('badgeCore');
+    core.classList.add('flash');
+    setTimeout(() => core.classList.remove('flash'), 750);
+  }
+
+  /* ══════════════════════════════════════════════
+     COMPLIANCE TOGGLE
+  ══════════════════════════════════════════════ */
+  $('complianceTrigger').addEventListener('click', () => {
+    const btn  = $('complianceTrigger');
+    const body = $('complianceBody');
+    btn.classList.toggle('open');
+    body.classList.toggle('open');
+  });
+
+  /* ══════════════════════════════════════════════
+     RESET
+  ══════════════════════════════════════════════ */
+  function resetDemo() {
+    const input  = $('piiInput');
+    const tooltip = $('piiTooltip');
+    const pf     = $('ttProgressFill');
+
+    input.value = '';
+    input.classList.remove('scanned');
+    input.style.borderColor = '';
+    input.style.boxShadow   = '';
+
+    tooltip.classList.remove('show');
+    pf.classList.remove('go', 'done');
+    $('ttDot').classList.remove('done');
+    $('ttStatusText').textContent = 'Masking in progress…';
+    $('complianceTrigger').classList.remove('open');
+    $('complianceBody').classList.remove('open');
+    $('triggerBtn').disabled = false;
+
+    running = false;
+  }
+</script>
+</body>
+</html>
