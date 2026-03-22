@@ -36,6 +36,6 @@ class VectorCache:
         """Store a cached entry tagged with the caller's permission level."""
         with self._lock:
             vec = self._encode(query)
-            self._index.add(vec)
             self._values.append(value)
             self._levels.append(caller_level)
+            self._index.add(vec)
