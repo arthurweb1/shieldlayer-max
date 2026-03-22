@@ -7,7 +7,7 @@ from typing import Optional
 
 import re
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -47,7 +47,7 @@ def _get_state(request: Request):
 
 
 @router.post("/v1/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, state=Depends(_get_state)) -> ChatResponse:
+async def chat(body: ChatRequest, state=Depends(_get_state)):
     start = _time.monotonic()
     request_id = str(uuid.uuid4())
 
@@ -57,71 +57,153 @@ async def chat(body: ChatRequest, state=Depends(_get_state)) -> ChatResponse:
     mask_result = state.shield.mask(prompt_text)
     masked_prompt = mask_result.masked_text
 
-    # 2. Cache lookup
+    # 2. Vault: seal PII mapping (encrypted in RAM, auto-purges after TTL)
+    session_id = state.vault.seal_and_schedule(mask_result.mapping)
+
+    # 3. Cache lookup
     cached_response = state.cache.get(masked_prompt)
     from_cache = cached_response is not None
 
-    if not from_cache:
-        # 3. vLLM call
-        raw_response = await state.vllm_call(masked_prompt)
+    if body.stream:
+        # --- Streaming path ---
+        # Buffer all chunks from the router into a full response string,
+        # then run the full pipeline (compliance, de-anonymize, watermark, audit)
+        # on the complete text. This preserves pipeline integrity while still
+        # returning a StreamingResponse to the client.
+        chunks = []
+        async for chunk in state.router.stream(masked_prompt):
+            chunks.append(chunk)
+        raw_response = "".join(chunks)
 
-        # 4. Compliance check (guardian)
         try:
-            compliance = await state.guardian.check(masked_prompt, raw_response)
-        except ComplianceError as e:
-            # Audit the blocked request (critical path)
+            # Compliance check on full buffered text
+            try:
+                compliance = await state.guardian.check(masked_prompt, raw_response)
+            except ComplianceError as e:
+                try:
+                    await state.audit.write(
+                        request_id=request_id,
+                        masked_prompt_hash=hashlib.sha256(masked_prompt.encode()).hexdigest()[:32],
+                        response_hash="BLOCKED",
+                        compliant=False,
+                        article_ref=e.article,
+                        watermark_seed="N/A",
+                        duration_ms=int((_time.monotonic() - start) * 1000),
+                    )
+                except Exception as audit_exc:
+                    raise HTTPException(
+                        status_code=500, detail=f"Audit write failed: {audit_exc}"
+                    ) from audit_exc
+                raise HTTPException(status_code=451, detail=str(e))
+
+            # Cache compliant response
+            state.cache.set(masked_prompt, raw_response)
+
+            # De-anonymize using vault
+            mapping = state.vault.open(session_id)
+            final_response = state.shield.deanonymize(raw_response, mapping)
+
+            # Watermark
+            watermark_seed = hashlib.sha256(request_id.encode()).hexdigest()[:8]
+            watermarked = state.shield.watermark(final_response, request_id=request_id)
+
+            # Audit log
             try:
                 await state.audit.write(
                     request_id=request_id,
                     masked_prompt_hash=hashlib.sha256(masked_prompt.encode()).hexdigest()[:32],
-                    response_hash="BLOCKED",
-                    compliant=False,
-                    article_ref=e.article,
-                    watermark_seed="N/A",
+                    response_hash=hashlib.sha256(watermarked.encode()).hexdigest()[:32],
+                    compliant=True,
+                    article_ref=None,
+                    watermark_seed=watermark_seed,
                     duration_ms=int((_time.monotonic() - start) * 1000),
                 )
-            except Exception as audit_exc:
+            except Exception as exc:
                 raise HTTPException(
-                    status_code=500, detail=f"Audit write failed: {audit_exc}"
-                ) from audit_exc
-            raise HTTPException(status_code=451, detail=str(e))
+                    status_code=500, detail=f"Audit write failed: {exc}"
+                ) from exc
+        finally:
+            state.vault.purge(session_id)
 
-        # 5. Store compliant response in cache
-        state.cache.set(masked_prompt, raw_response)
-    else:
-        raw_response = cached_response
-        compliance = ComplianceResult(compliant=True)
+        # Stream the watermarked response back to the client word-by-word
+        def _sse_generator(text: str):
+            words = text.split(" ")
+            for i, word in enumerate(words):
+                chunk = word if i == len(words) - 1 else word + " "
+                yield f"data: {chunk}\n\n"
 
-    # 6. De-anonymize
-    final_response = state.shield.deanonymize(raw_response, mask_result.mapping)
-
-    # 7. Watermark
-    watermark_seed = hashlib.sha256(request_id.encode()).hexdigest()[:8]
-    watermarked = state.shield.watermark(final_response, request_id=request_id)
-
-    # 8. Audit (critical path — HTTP 500 if write fails, per EU AI Act Art. 12)
-    try:
-        await state.audit.write(
-            request_id=request_id,
-            masked_prompt_hash=hashlib.sha256(masked_prompt.encode()).hexdigest()[:32],
-            response_hash=hashlib.sha256(watermarked.encode()).hexdigest()[:32],
-            compliant=True,
-            article_ref=None,
-            watermark_seed=watermark_seed,
-            duration_ms=int((_time.monotonic() - start) * 1000),
+        return StreamingResponse(
+            _sse_generator(watermarked),
+            media_type="text/event-stream",
         )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500, detail=f"Audit write failed: {exc}"
-        ) from exc
 
-    retries = compliance.retries if hasattr(compliance, "retries") else 0
-    return ChatResponse(
-        id=request_id,
-        content=watermarked,
-        compliance=ComplianceInfo(compliant=True, retries=retries),
-        cached=from_cache,
-    )
+    else:
+        # --- Non-streaming path ---
+        try:
+            if not from_cache:
+                # 4. Router call (non-streaming)
+                raw_response = await state.router.complete(masked_prompt)
+
+                # 5. Compliance check (guardian)
+                try:
+                    compliance = await state.guardian.check(masked_prompt, raw_response)
+                except ComplianceError as e:
+                    # Audit the blocked request (critical path)
+                    try:
+                        await state.audit.write(
+                            request_id=request_id,
+                            masked_prompt_hash=hashlib.sha256(masked_prompt.encode()).hexdigest()[:32],
+                            response_hash="BLOCKED",
+                            compliant=False,
+                            article_ref=e.article,
+                            watermark_seed="N/A",
+                            duration_ms=int((_time.monotonic() - start) * 1000),
+                        )
+                    except Exception as audit_exc:
+                        raise HTTPException(
+                            status_code=500, detail=f"Audit write failed: {audit_exc}"
+                        ) from audit_exc
+                    raise HTTPException(status_code=451, detail=str(e))
+
+                # 6. Store compliant response in cache
+                state.cache.set(masked_prompt, raw_response)
+            else:
+                raw_response = cached_response
+                compliance = ComplianceResult(compliant=True)
+
+            # 7. De-anonymize using vault
+            mapping = state.vault.open(session_id)
+            final_response = state.shield.deanonymize(raw_response, mapping)
+
+            # 8. Watermark
+            watermark_seed = hashlib.sha256(request_id.encode()).hexdigest()[:8]
+            watermarked = state.shield.watermark(final_response, request_id=request_id)
+
+            # 9. Audit (critical path — HTTP 500 if write fails, per EU AI Act Art. 12)
+            try:
+                await state.audit.write(
+                    request_id=request_id,
+                    masked_prompt_hash=hashlib.sha256(masked_prompt.encode()).hexdigest()[:32],
+                    response_hash=hashlib.sha256(watermarked.encode()).hexdigest()[:32],
+                    compliant=True,
+                    article_ref=None,
+                    watermark_seed=watermark_seed,
+                    duration_ms=int((_time.monotonic() - start) * 1000),
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"Audit write failed: {exc}"
+                ) from exc
+        finally:
+            state.vault.purge(session_id)
+
+        retries = compliance.retries if hasattr(compliance, "retries") else 0
+        return ChatResponse(
+            id=request_id,
+            content=watermarked,
+            compliance=ComplianceInfo(compliant=True, retries=retries),
+            cached=from_cache,
+        )
 
 
 @router.get("/health")
