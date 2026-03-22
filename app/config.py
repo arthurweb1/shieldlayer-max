@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     audit_token: str = "change-me"
     cache_similarity_threshold: float = 0.97
 
+    # LLM Backend Router
+    llm_backend_type: str = "LOCAL"  # "LOCAL" (vLLM) or "CLOUD" (OpenAI-compatible)
+    openai_api_key: str = ""          # Required when llm_backend_type=CLOUD
+    openai_base_url: str = "https://api.openai.com/v1"  # Override for Azure/other providers
+
+    # Vault
+    vault_session_ttl_seconds: int = 300  # Auto-purge mapping after this many seconds
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
