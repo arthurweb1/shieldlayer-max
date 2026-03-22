@@ -3,6 +3,22 @@ from unittest.mock import AsyncMock, MagicMock
 from httpx import AsyncClient, ASGITransport
 
 
+def _make_mocks():
+    """Create standard mock vault and router for use in tests."""
+    from app.engine.router import HybridRouter
+    from app.engine.vault import Vault
+
+    mock_router = AsyncMock(spec=HybridRouter)
+    mock_router.complete = AsyncMock(return_value="Regulation X requires compliance.")
+
+    mock_vault = MagicMock(spec=Vault)
+    mock_vault.seal_and_schedule.return_value = "test-session-id"
+    mock_vault.open.return_value = {"PERSON_001": "Max Mustermann"}
+    mock_vault.purge.return_value = None
+
+    return mock_router, mock_vault
+
+
 @pytest.mark.asyncio
 async def test_chat_endpoint_returns_200():
     from app.main import create_app
@@ -10,6 +26,8 @@ async def test_chat_endpoint_returns_200():
     from app.engine.guardian import GuardianEngine, ComplianceResult
     from app.database.vector_cache import VectorCache
     from app.database.audit_log import AuditLog
+
+    mock_router, mock_vault = _make_mocks()
 
     mock_shield = MagicMock(spec=ShieldEngine)
     mock_shield.mask.return_value = MaskResult(
@@ -32,7 +50,8 @@ async def test_chat_endpoint_returns_200():
         guardian=mock_guardian,
         cache=mock_cache,
         audit=mock_audit,
-        vllm_call=AsyncMock(return_value="Regulation X requires compliance."),
+        router=mock_router,
+        vault=mock_vault,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/v1/chat", json={
@@ -54,6 +73,10 @@ async def test_compliance_failure_returns_451():
     from app.database.vector_cache import VectorCache
     from app.database.audit_log import AuditLog
 
+    mock_router, mock_vault = _make_mocks()
+    mock_router.complete = AsyncMock(return_value="illegal content")
+    mock_vault.open.return_value = {}
+
     mock_shield = MagicMock(spec=ShieldEngine)
     mock_shield.mask.return_value = MaskResult(masked_text="bad prompt", mapping={})
     mock_shield.deanonymize.return_value = "bad response"
@@ -72,7 +95,8 @@ async def test_compliance_failure_returns_451():
         guardian=mock_guardian,
         cache=mock_cache,
         audit=mock_audit,
-        vllm_call=AsyncMock(return_value="illegal content"),
+        router=mock_router,
+        vault=mock_vault,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/v1/chat", json={"messages": [{"role": "user", "content": "bad"}]})
@@ -86,6 +110,10 @@ async def test_audit_failure_returns_500():
     from app.engine.guardian import GuardianEngine, ComplianceResult
     from app.database.vector_cache import VectorCache
     from app.database.audit_log import AuditLog
+
+    mock_router, mock_vault = _make_mocks()
+    mock_router.complete = AsyncMock(return_value="response")
+    mock_vault.open.return_value = {}
 
     mock_shield = MagicMock(spec=ShieldEngine)
     mock_shield.mask.return_value = MaskResult(masked_text="prompt", mapping={})
@@ -106,7 +134,8 @@ async def test_audit_failure_returns_500():
         guardian=mock_guardian,
         cache=mock_cache,
         audit=mock_audit,
-        vllm_call=AsyncMock(return_value="response"),
+        router=mock_router,
+        vault=mock_vault,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/v1/chat", json={"messages": [{"role": "user", "content": "test"}]})
@@ -123,6 +152,8 @@ async def test_audit_export_requires_auth():
     import os
     os.environ["AUDIT_TOKEN"] = "test-token"
 
+    mock_router, mock_vault = _make_mocks()
+
     mock_audit = AsyncMock(spec=AuditLog)
     mock_audit.fetch_range.return_value = [
         {"request_id": "req-1", "ts": "2026-01-01T00:00:00+00:00", "compliant": True,
@@ -133,7 +164,8 @@ async def test_audit_export_requires_auth():
         guardian=AsyncMock(spec=GuardianEngine),
         cache=MagicMock(spec=VectorCache),
         audit=mock_audit,
-        vllm_call=AsyncMock(return_value="test"),
+        router=mock_router,
+        vault=mock_vault,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/audit/export")
@@ -151,14 +183,76 @@ async def test_health_endpoint():
     from app.database.vector_cache import VectorCache
     from app.database.audit_log import AuditLog
 
+    mock_router, mock_vault = _make_mocks()
+
     app = create_app(
         shield=MagicMock(spec=ShieldEngine),
         guardian=AsyncMock(spec=GuardianEngine),
         cache=MagicMock(spec=VectorCache),
         audit=AsyncMock(spec=AuditLog),
-        vllm_call=AsyncMock(return_value=""),
+        router=mock_router,
+        vault=mock_vault,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_streaming_response():
+    from app.main import create_app
+    from app.engine.shield import ShieldEngine, MaskResult
+    from app.engine.guardian import GuardianEngine, ComplianceResult
+    from app.database.vector_cache import VectorCache
+    from app.database.audit_log import AuditLog
+    from app.engine.router import HybridRouter
+    from app.engine.vault import Vault
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_router = MagicMock(spec=HybridRouter)
+    mock_router.complete = AsyncMock(return_value="Hello world")
+
+    async def fake_stream(prompt):
+        for word in ["Hello", " world"]:
+            yield word
+
+    mock_router.stream = fake_stream
+
+    mock_vault = MagicMock(spec=Vault)
+    mock_vault.seal_and_schedule.return_value = "stream-session-id"
+    mock_vault.open.return_value = {"PERSON_001": "Max Mustermann"}
+    mock_vault.purge.return_value = None
+
+    mock_shield = MagicMock(spec=ShieldEngine)
+    mock_shield.mask.return_value = MaskResult(
+        masked_text="PERSON_001 asks something.",
+        mapping={"PERSON_001": "Max Mustermann"}
+    )
+    mock_shield.deanonymize.return_value = "Max Mustermann asks something."
+    mock_shield.watermark.return_value = "Max Mustermann asks something. [AI]"
+
+    mock_guardian = AsyncMock(spec=GuardianEngine)
+    mock_guardian.check.return_value = ComplianceResult(compliant=True)
+
+    mock_cache = MagicMock(spec=VectorCache)
+    mock_cache.get.return_value = None
+
+    mock_audit = AsyncMock(spec=AuditLog)
+
+    app = create_app(
+        shield=mock_shield,
+        guardian=mock_guardian,
+        cache=mock_cache,
+        audit=mock_audit,
+        router=mock_router,
+        vault=mock_vault,
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/chat", json={
+            "messages": [{"role": "user", "content": "Max Mustermann asks something."}],
+            "stream": True,
+        })
+
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]

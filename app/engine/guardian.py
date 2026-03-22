@@ -13,9 +13,10 @@ Key articles to check:
 """
 
 CORRECTION_SYSTEM_PROMPT = (
-    "You are a helpful, neutral assistant. "
-    "Provide a factual response that avoids the following issue: {reason}\n"
-    "Original question: {prompt}"
+    "You are a helpful, neutral assistant complying with EU AI Act {article}.\n"
+    "The previous response was non-compliant: {reason}\n"
+    "Provide a neutral, factual reformulation that avoids this issue. "
+    "Do not reference the compliance issue in your response."
 )
 
 
@@ -36,7 +37,7 @@ class ComplianceError(Exception):
 
 
 class GuardianEngine:
-    def __init__(self, base_url: str, model: str, max_retries: int = 3):
+    def __init__(self, base_url: str, model: str, max_retries: int = 2):
         self._base_url = base_url
         self._model = model
         # max 4 total vLLM calls: 1 judge + up to 3 corrections (no re-judge)
@@ -58,7 +59,8 @@ class GuardianEngine:
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
 
-    async def _correct_call(self, prompt: str, reason: str) -> str:
+    async def _correct_call(self, prompt: str, reason: str, article: Optional[str] = None) -> str:
+        article_ref = article or "Art. 5/10/13"
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
                 f"{self._base_url}/v1/chat/completions",
@@ -68,7 +70,8 @@ class GuardianEngine:
                         {
                             "role": "system",
                             "content": CORRECTION_SYSTEM_PROMPT.format(
-                                reason=reason, prompt=prompt
+                                article=article_ref,
+                                reason=reason,
                             ),
                         },
                         {"role": "user", "content": prompt},
@@ -109,7 +112,7 @@ class GuardianEngine:
         # Non-compliant: correction calls (no re-judging to stay within 4-call budget)
         for retry in range(1, self._max_retries + 1):
             corrected = await self._correct_call(
-                original_prompt, result.reason or "policy violation"
+                original_prompt, result.reason or "policy violation", result.article
             )
             if corrected:  # non-empty correction → return as compliant
                 return ComplianceResult(compliant=True, retries=retry)
