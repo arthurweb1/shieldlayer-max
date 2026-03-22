@@ -199,6 +199,80 @@ async def test_health_endpoint():
     assert resp.json() == {"status": "ok"}
 
 
+# --- RBAC / identity header tests ---
+from app.middleware.auth import RequestIdentity
+from app.engine.router import HybridRouter
+
+
+@pytest.mark.asyncio
+async def test_chat_uses_route_for_identity():
+    """routes.py must call state.router.route_for(identity) not state.router directly."""
+    from app.main import create_app
+    from app.engine.shield import ShieldEngine, MaskResult
+    from app.engine.guardian import GuardianEngine, ComplianceResult
+    from app.database.vector_cache import VectorCache
+    from app.database.audit_log import AuditLog
+    from app.engine.vault import Vault
+
+    mock_shield = MagicMock(spec=ShieldEngine)
+    mock_shield.mask.return_value = MaskResult(
+        masked_text="PERSON_001 asks about regulations.",
+        mapping={"PERSON_001": "Alice"},
+    )
+    mock_shield.deanonymize.return_value = "Alice asks about regulations."
+    mock_shield.watermark.return_value = "Alice asks about regulations."
+
+    mock_guardian = AsyncMock(spec=GuardianEngine)
+    mock_guardian.check.return_value = ComplianceResult(compliant=True)
+    mock_cache = MagicMock(spec=VectorCache)
+    mock_cache.get.return_value = None
+    mock_audit = AsyncMock(spec=AuditLog)
+    mock_vault = MagicMock(spec=Vault)
+    mock_vault.seal_and_schedule.return_value = "sid-001"
+    mock_vault.open.return_value = {"PERSON_001": "Alice"}
+
+    mock_sub_router = AsyncMock()
+    mock_sub_router.complete = AsyncMock(return_value="Regulation response.")
+    mock_router = MagicMock(spec=HybridRouter)
+    mock_router.route_for.return_value = mock_sub_router
+
+    app = create_app(
+        shield=mock_shield, guardian=mock_guardian, cache=mock_cache,
+        audit=mock_audit, router=mock_router, vault=mock_vault,
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/chat",
+            json={"messages": [{"role": "user", "content": "Alice asks about regulations."}]},
+            headers={"X-Org-ID": "rd", "X-User-Role": "analyst"},
+        )
+    assert resp.status_code == 200
+    mock_router.route_for.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_chat_without_identity_headers_returns_403():
+    """Missing identity headers → 403 (middleware rejects before handler runs)."""
+    from app.main import create_app
+    from app.engine.shield import ShieldEngine
+    from app.engine.guardian import GuardianEngine
+    from app.database.vector_cache import VectorCache
+    from app.database.audit_log import AuditLog
+    from app.engine.vault import Vault
+
+    app = create_app(
+        shield=MagicMock(spec=ShieldEngine),
+        guardian=AsyncMock(spec=GuardianEngine),
+        cache=MagicMock(spec=VectorCache),
+        audit=AsyncMock(spec=AuditLog),
+        router=MagicMock(spec=HybridRouter),
+        vault=MagicMock(spec=Vault),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/v1/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 403
+
+
 @pytest.mark.asyncio
 async def test_streaming_response():
     from app.main import create_app

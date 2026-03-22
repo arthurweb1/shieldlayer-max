@@ -7,6 +7,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.config import get_settings
 from app.api.routes import router as api_router
+from app.middleware.auth import RBACMiddleware
 from app.engine.shield import ShieldEngine
 from app.engine.guardian import GuardianEngine
 from app.engine.vault import Vault
@@ -50,16 +51,17 @@ def create_app(
         if _vault is None:
             _vault = Vault(ttl_seconds=settings.vault_session_ttl_seconds)
         if _router is None:
-            base_url = (
-                settings.vllm_base_url
-                if settings.llm_backend_type == "LOCAL"
-                else settings.openai_base_url
-            )
             _router = HybridRouter(
                 backend_type=settings.llm_backend_type,
-                base_url=base_url,
+                base_url=settings.vllm_base_url if settings.llm_backend_type == "LOCAL" else settings.openai_base_url,
                 model=settings.vllm_model,
                 api_key=settings.openai_api_key,
+                local_config={"base_url": settings.vllm_base_url, "model": settings.vllm_model},
+                cloud_config={
+                    "base_url": settings.openai_base_url,
+                    "model": settings.vllm_model,
+                    "api_key": settings.openai_api_key,
+                },
             )
 
         app.state.shield = _shield
@@ -84,6 +86,7 @@ def create_app(
         app.state.vault = _vault
         app.state.router = _router
 
+    app.add_middleware(RBACMiddleware)
     app.include_router(api_router)
 
     @app.get("/metrics")
