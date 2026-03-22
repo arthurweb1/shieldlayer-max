@@ -98,3 +98,17 @@ def test_mask_email_gets_email_pseudonym(shield):
     result = shield.mask(text)
     assert "max@example.com" not in result.masked_text
     assert any("EMAIL_" in k for k in result.mapping.keys())
+
+
+def test_mask_returns_pii_stats(shield):
+    text = "Max Mustermann at max@example.com wants help."
+    result = shield.mask(text)
+    assert isinstance(result.pii_stats, dict)
+    # At minimum one entity type should be detected
+    assert sum(result.pii_stats.values()) >= 1
+
+
+def test_mask_no_pii_returns_empty_stats(shield):
+    text = "The weather is nice today."
+    result = shield.mask(text)
+    assert result.pii_stats == {}

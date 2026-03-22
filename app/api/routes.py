@@ -92,6 +92,8 @@ async def chat(request: Request, body: ChatRequest, state=Depends(_get_state)):
                         article_ref=e.article,
                         watermark_seed="N/A",
                         duration_ms=int((_time.monotonic() - start) * 1000),
+                        pii_stats=mask_result.pii_stats,
+                        cached=False,
                     )
                 except Exception as audit_exc:
                     raise HTTPException(
@@ -120,6 +122,8 @@ async def chat(request: Request, body: ChatRequest, state=Depends(_get_state)):
                     article_ref=None,
                     watermark_seed=watermark_seed,
                     duration_ms=int((_time.monotonic() - start) * 1000),
+                    pii_stats=mask_result.pii_stats,
+                    cached=from_cache,
                 )
             except Exception as exc:
                 raise HTTPException(
@@ -162,6 +166,8 @@ async def chat(request: Request, body: ChatRequest, state=Depends(_get_state)):
                             article_ref=e.article,
                             watermark_seed="N/A",
                             duration_ms=int((_time.monotonic() - start) * 1000),
+                            pii_stats=mask_result.pii_stats,
+                            cached=False,
                         )
                     except Exception as audit_exc:
                         raise HTTPException(
@@ -193,6 +199,8 @@ async def chat(request: Request, body: ChatRequest, state=Depends(_get_state)):
                     article_ref=None,
                     watermark_seed=watermark_seed,
                     duration_ms=int((_time.monotonic() - start) * 1000),
+                    pii_stats=mask_result.pii_stats,
+                    cached=from_cache,
                 )
             except Exception as exc:
                 raise HTTPException(
