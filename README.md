@@ -4,98 +4,156 @@
 
 ---
 
-## Architecture
+## How it works
 
 ```
-Client Request
-      │
-      ▼
-┌─────────────────────────────────────────────────────────┐
-│                    FastAPI (port 8080)                   │
-│                                                         │
-│  ┌────────────┐   ┌─────────────────┐   ┌───────────┐  │
-│  │   Shield   │   │  Semantic Cache  │   │  Guardian │  │
-│  │ (Presidio) │   │  (FAISS + ST)   │   │ (vLLM)   │  │
-│  └─────┬──────┘   └────────┬────────┘   └─────┬─────┘  │
-│        │ PII masked        │ cache miss        │        │
-│        ▼                   ▼                   ▼        │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │              vLLM (local GPU inference)          │    │
-│  └─────────────────────────────────────────────────┘    │
-│                                                         │
-│  ┌────────────────────────────────────────────────┐     │
-│  │  Audit Log (PostgreSQL) — append-only, hashed  │     │
-│  └────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────┘
+Your App  →  shieldlayer-max  →  Local LLM  →  shieldlayer-max  →  Your App
+              (masks names,         (no PII        (restores names,
+               emails, IBANs)        visible)        adds audit log)
 ```
 
-**Request pipeline:**
-1. Presidio detects and pseudonymizes PII (names, IBANs, emails) — **data never leaves the shield**
-2. FAISS semantic cache checks for near-identical prior requests (threshold: 0.97 cosine)
-3. Masked prompt sent to local vLLM instance
-4. Guardian judge checks output for EU AI Act violations (Art. 5, 10, 13)
-5. Non-compliant responses trigger up to 3 correction attempts before returning HTTP 451
-6. PII re-injected into response (de-anonymization)
-7. Linguistic watermark injected — every response is forensically traceable
-8. Full audit record written to PostgreSQL (required by EU AI Act Art. 12)
-
----
-
-## Prerequisites
-
-| Requirement | Details |
-|-------------|---------|
-| Docker + Docker Compose | v2.0+ |
-| NVIDIA GPU | Required for vLLM inference (CUDA 12.1+) |
-| NVIDIA Container Toolkit | `nvidia-container-toolkit` installed |
-| LLM model weights | Download once (e.g. Llama-3-8B-Instruct via `huggingface-cli download`) |
-| Python 3.11 | For local development only — production runs in Docker |
+**Step by step:**
+1. Your request comes in — names, emails, IBANs are replaced with placeholders (`PERSON_001`, `EMAIL_001`)
+2. The masked prompt is sent to a local LLM (nothing leaves your server)
+3. The response is checked for EU AI Act violations — blocked if non-compliant (HTTP 451)
+4. Original values are re-inserted into the response
+5. A hidden watermark is added so leaked responses can be traced back
+6. Everything is logged to a local database for audit purposes
 
 ---
 
 ## Quick Start
 
+### Option A — With GPU (recommended for production)
+
+Requires an NVIDIA GPU with CUDA 12.1+.
+
 ```bash
-# 1. Clone the repository
 git clone https://github.com/arthurweb1/shieldlayer-max.git
 cd shieldlayer-max
+git checkout feature/shieldlayer-implementation
 
-# 2. Configure environment
+# Copy and edit config
 cp .env.example .env
-# Edit .env: set POSTGRES_PASSWORD, AUDIT_TOKEN, and VLLM_MODEL path
+# Open .env and change: POSTGRES_PASSWORD, AUDIT_TOKEN, VLLM_MODEL
 
-# 3. Download model weights (one-time, ~16GB for Llama-3-8B)
+# Download model weights once (~16 GB)
+pip install huggingface_hub[cli]
 huggingface-cli download meta-llama/Meta-Llama-3-8B-Instruct
 
-# 4. Start all services
+# Start everything
 docker compose up -d
+```
 
-# 5. Test the proxy
+### Option B — Without GPU (CPU / Ollama)
+
+No NVIDIA GPU? Use [Ollama](https://ollama.com) as a local LLM backend instead of vLLM.
+
+**1. Install Ollama:** https://ollama.com/download
+
+**2. Pull a small model (e.g. Mistral 7B ~4 GB):**
+```bash
+ollama pull mistral
+```
+
+**3. Edit `.env`** — point shieldlayer-max at Ollama instead of vLLM:
+```env
+VLLM_BASE_URL=http://host.docker.internal:11434
+VLLM_MODEL=mistral
+VLLM_GUARDIAN_MODEL=mistral
+```
+
+**4. Edit `docker-compose.yml`** — remove the `vllm` service entirely (Ollama runs natively on your machine):
+```yaml
+# Delete or comment out the entire vllm: block
+```
+
+**5. Start:**
+```bash
+docker compose up -d postgres app
+```
+
+> **Note:** CPU inference is slower (30–120 seconds per response depending on hardware). GPU is recommended for any production use.
+
+---
+
+### Test the proxy
+
+**Linux / macOS / Git Bash:**
+```bash
 curl -X POST http://localhost:8080/v1/chat \
   -H "Content-Type: application/json" \
   -d '{"messages": [{"role": "user", "content": "Max Mustermann at max@example.com needs GDPR advice."}]}'
 ```
 
-**Expected response:** JSON with `content` (PII replaced back after masked LLM call), `compliance.compliant: true`, and `cached: false`.
+**Windows PowerShell:**
+```powershell
+Invoke-WebRequest -Method POST http://localhost:8080/v1/chat `
+  -Headers @{"Content-Type"="application/json"} `
+  -Body '{"messages": [{"role": "user", "content": "Max Mustermann at max@example.com needs GDPR advice."}]}'
+```
+
+**Expected response:**
+```json
+{
+  "id": "...",
+  "content": "Max Mustermann should consider...",
+  "compliance": {"compliant": true, "article": null, "retries": 0},
+  "cached": false
+}
+```
+Notice: `max@example.com` and `Max Mustermann` were never sent to the LLM — only `EMAIL_001` and `PERSON_001` were.
 
 ---
 
-## Environment Variables
+## Prerequisites
+
+| What | Details |
+|------|---------|
+| **Docker Desktop** | Download at [docker.com](https://www.docker.com/products/docker-desktop/) |
+| **Docker Compose** | Included with Docker Desktop (v2.0+) |
+| **LLM Backend** | Either: NVIDIA GPU + vLLM **or** CPU + Ollama (see Quick Start above) |
+| **Disk space** | ~4 GB for Ollama/Mistral, ~16 GB for Llama-3-8B |
+| **Python 3.11** | Only needed for local development — not required to run via Docker |
+
+**Optional (GPU path only):**
+- NVIDIA GPU with CUDA 12.1+
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
+---
+
+## Configuration (`.env`)
+
+Copy `.env.example` to `.env` and change these values:
+
+| Variable | What to set | Default |
+|----------|-------------|---------|
+| `POSTGRES_PASSWORD` | **Change this!** Any strong password | `CHANGE_ME` |
+| `AUDIT_TOKEN` | **Change this!** Random string for PDF export auth | `change-me-to-a-secure-token` |
+| `VLLM_MODEL` | Model name (must match downloaded model) | `meta-llama/Meta-Llama-3-8B-Instruct` |
+| `VLLM_BASE_URL` | LLM server URL (change if using Ollama) | `http://vllm:8000` |
+
+All other variables can stay at their defaults for a basic setup.
+
+<details>
+<summary>Full environment variable reference</summary>
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VLLM_BASE_URL` | vLLM server URL | `http://vllm:8000` |
-| `VLLM_MODEL` | Model name for main inference | `meta-llama/Meta-Llama-3-8B-Instruct` |
-| `VLLM_GUARDIAN_MODEL` | Model for compliance checking (can be same as VLLM_MODEL) | `meta-llama/Meta-Llama-3-8B-Instruct` |
-| `POSTGRES_DSN` | PostgreSQL connection string | `postgresql://shieldlayer:CHANGE_ME@postgres:5432/shieldlayer` |
-| `SHIELD_SYNONYM_PAIRS_PATH` | Path to watermark synonym pairs JSON | `/app/data/synonym_pairs.json` |
-| `GUARDIAN_MAX_RETRIES` | Max self-correction attempts before HTTP 451 | `3` |
-| `AUDIT_TOKEN` | Bearer token for `/audit/export` endpoint | *(set to strong random value)* |
-| `CACHE_SIMILARITY_THRESHOLD` | Cosine similarity threshold for cache hits | `0.97` |
+| `VLLM_BASE_URL` | LLM server URL | `http://vllm:8000` |
+| `VLLM_MODEL` | Model for main inference | `meta-llama/Meta-Llama-3-8B-Instruct` |
+| `VLLM_GUARDIAN_MODEL` | Model for compliance checking (can be same) | `meta-llama/Meta-Llama-3-8B-Instruct` |
+| `POSTGRES_DSN` | Full PostgreSQL connection string | auto-built from other vars |
+| `SHIELD_SYNONYM_PAIRS_PATH` | Path to watermark word pairs | `/app/data/synonym_pairs.json` |
+| `GUARDIAN_MAX_RETRIES` | Self-correction attempts before blocking | `3` |
+| `AUDIT_TOKEN` | Bearer token for `/audit/export` | *(set a strong value)* |
+| `CACHE_SIMILARITY_THRESHOLD` | How similar two prompts must be to share a cached answer | `0.97` |
 | `HF_HOME` | Hugging Face model cache directory | `~/.cache/huggingface` |
-| `POSTGRES_USER` | PostgreSQL username | `shieldlayer` |
-| `POSTGRES_PASSWORD` | PostgreSQL password — **change before deploying** | `CHANGE_ME` |
-| `POSTGRES_DB` | PostgreSQL database name | `shieldlayer` |
+| `POSTGRES_USER` | Database username | `shieldlayer` |
+| `POSTGRES_PASSWORD` | Database password | `CHANGE_ME` |
+| `POSTGRES_DB` | Database name | `shieldlayer` |
+
+</details>
 
 ---
 
@@ -115,15 +173,7 @@ shieldlayer-max directly addresses the following obligations:
 
 ## Forensic Watermarking
 
-Every response generated by shieldlayer-max contains a hidden linguistic watermark. Using a deterministic seed derived from the `request_id` (stored in the audit log), synonym substitutions are applied to the response text. If a response is leaked, the watermark seed can be recovered from the audit log and used to identify the originating session.
-
-**How it works:**
-- Seed: `SHA256(request_id)[:8]`
-- Method: Synonym substitution from 54 word pairs (e.g. "however" ↔ "nevertheless")
-- Fallback: If fewer than 3 substitutions are possible, a disclosure statement is appended
-- Detection: Given the seed, any forensic analyst can verify which session produced a response
-
-This mechanism provides legal accountability without requiring plaintext storage of prompts or responses.
+Every response contains a hidden linguistic watermark. Using a deterministic seed based on the `request_id` (stored in the audit log), synonym substitutions are applied to the text (e.g. "however" → "nevertheless"). If a response is ever leaked, the watermark can be matched against the audit log to identify which session it came from — without storing any plaintext.
 
 ---
 
@@ -131,33 +181,13 @@ This mechanism provides legal accountability without requiring plaintext storage
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/v1/chat` | Proxy chat request through the full compliance pipeline |
-| `GET` | `/audit/export` | Download PDF audit report (`Authorization: Bearer <AUDIT_TOKEN>`) |
-| `GET` | `/health` | Liveness check |
-
-### POST /v1/chat
-
-**Request:**
-```json
-{
-  "messages": [{"role": "user", "content": "your prompt"}],
-  "stream": false
-}
-```
-
-**Response:**
-```json
-{
-  "id": "uuid",
-  "content": "response text",
-  "compliance": {"compliant": true, "article": null, "retries": 0},
-  "cached": false
-}
-```
+| `POST` | `/v1/chat` | Send a prompt through the compliance pipeline |
+| `GET` | `/audit/export` | Download PDF audit log (`Authorization: Bearer <AUDIT_TOKEN>`) |
+| `GET` | `/health` | Health check |
 
 **Error codes:**
-- `451` — Response blocked by compliance guardian (body contains article reference)
-- `500` — Audit write failure (EU AI Act Art. 12 critical path)
+- `451` — Response blocked (EU AI Act violation detected, article reference in body)
+- `500` — Audit write failure (compliance logging is mandatory per Art. 12)
 
 ---
 
