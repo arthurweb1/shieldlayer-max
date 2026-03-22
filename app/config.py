@@ -1,7 +1,10 @@
-from pydantic_settings import BaseSettings
+from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     vllm_base_url: str = "http://vllm:8000"
     vllm_model: str = "meta-llama/Meta-Llama-3-8B-Instruct"
     vllm_guardian_model: str = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -11,8 +14,11 @@ class Settings(BaseSettings):
     audit_token: str = "change-me"
     cache_similarity_threshold: float = 0.97
 
-    class Config:
-        env_file = ".env"
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()
 
 
-settings = Settings()
+# Convenience alias for direct imports — tests should use get_settings() with override
+settings = get_settings()
