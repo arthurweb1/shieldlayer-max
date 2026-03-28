@@ -5,13 +5,17 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .audit.store import AuditStore
 from .config import settings
+from .metrics.store import MetricsStore
+from .router import router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(settings.redis_url, decode_responses=True)
-    # metrics and audit stores are added in Task A7 when those modules exist
+    app.state.metrics = MetricsStore()
+    app.state.audit = AuditStore()
     yield
     await app.state.redis.aclose()
 
@@ -25,7 +29,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # routers mounted in Task A7
+    app.include_router(router)
     return app
 
 
