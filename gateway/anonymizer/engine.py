@@ -13,35 +13,58 @@ custom regex-based PERSON recognizer instead of SpacyRecognizer.
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Python-3.14 / pydantic-v1 compatibility patches — applied before any import
-# that transitively touches spacy.schemas (which uses forward-ref models).
+# Python-3.14 / pydantic-v1 compatibility patches — applied at most once per
+# process, guarded by _PYDANTIC_PATCHED so re-imports are safe and cheap.
 # ---------------------------------------------------------------------------
-import pydantic.v1.fields as _pv1f
-import pydantic.v1.schema as _pv1s
+_PYDANTIC_PATCHED = False
 
-_orig_prepare = _pv1f.ModelField.prepare
-def _patched_prepare(self: _pv1f.ModelField) -> None:
-    try:
-        _orig_prepare(self)
-    except Exception as exc:
-        if "unable to infer type" in str(exc):
-            from typing import Any
-            self.type_ = Any
-            self.outer_type_ = Any
-            self.annotation = Any
-        else:
-            raise
-_pv1f.ModelField.prepare = _patched_prepare
 
-_orig_get_ann = _pv1s.get_annotation_from_field_info
-def _patched_get_ann(annotation, field_info, field_name,
-                     config_validate_assignment: bool = False):
+def _patch_pydantic_for_python314() -> None:
+    """
+    Python 3.14 changed get_type_hints() behavior, breaking pydantic v1's
+    ModelField.prepare.  These patches allow Presidio (which depends on pydantic
+    v1 internals) to load correctly.  Applied at most once per process.
+    """
+    global _PYDANTIC_PATCHED
+    if _PYDANTIC_PATCHED:
+        return
     try:
-        return _orig_get_ann(annotation, field_info, field_name,
-                             config_validate_assignment)
-    except ValueError:
-        return annotation
-_pv1s.get_annotation_from_field_info = _patched_get_ann
+        import pydantic.v1.fields as _pv1_fields
+        import pydantic.v1.schema as _pv1_schema
+
+        _orig_prepare = _pv1_fields.ModelField.prepare
+
+        def _patched_prepare(self: _pv1_fields.ModelField) -> None:
+            try:
+                _orig_prepare(self)
+            except Exception as exc:
+                if "unable to infer type" in str(exc):
+                    from typing import Any
+                    self.type_ = Any
+                    self.outer_type_ = Any
+                    self.annotation = Any
+                else:
+                    raise
+
+        _pv1_fields.ModelField.prepare = _patched_prepare
+
+        _orig_get_ann = _pv1_schema.get_annotation_from_field_info
+
+        def _patched_get_ann(annotation, field_info, field_name,
+                             config_validate_assignment: bool = False):
+            try:
+                return _orig_get_ann(annotation, field_info, field_name,
+                                     config_validate_assignment)
+            except ValueError:
+                return annotation
+
+        _pv1_schema.get_annotation_from_field_info = _patched_get_ann
+    except (ImportError, AttributeError):
+        pass  # Not using pydantic v1, nothing to patch
+    _PYDANTIC_PATCHED = True
+
+
+_patch_pydantic_for_python314()
 # ---------------------------------------------------------------------------
 
 import re
@@ -64,17 +87,6 @@ ENTITIES = [
     "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE",
     "CREDIT_CARD", "IP_ADDRESS",
 ]
-
-# Module-level counters for sequential, deterministic placeholders
-_ENTITY_COUNTERS: dict[str, int] = {}
-
-
-def _placeholder(entity_type: str) -> str:
-    """Return e.g. PERSON_001, EMAIL_002 …"""
-    short = entity_type.split("_")[0]
-    _ENTITY_COUNTERS[short] = _ENTITY_COUNTERS.get(short, 0) + 1
-    return f"{short}_{_ENTITY_COUNTERS[short]:03d}"
-
 
 # ---------------------------------------------------------------------------
 # Lightweight person-name recognizer (no ML model required)
@@ -213,12 +225,19 @@ class AnonymizerEngine:
         if not all_results:
             return AnonymizeResult(text=text)
 
+        local_counters: dict[str, int] = {}
+
+        def _make_placeholder(entity_type: str) -> str:
+            short = entity_type.split("_")[0]
+            local_counters[short] = local_counters.get(short, 0) + 1
+            return f"{short}_{local_counters[short]:03d}"
+
         mapping: dict[str, str] = {}
         # Replace spans from right to left to preserve indices
         out = text
         for r in sorted(all_results, key=lambda x: x.start, reverse=True):
             original = text[r.start:r.end]
-            placeholder = _placeholder(r.entity_type)
+            placeholder = _make_placeholder(r.entity_type)
             mapping[placeholder] = original
             out = out[: r.start] + placeholder + out[r.end:]
 
