@@ -16,6 +16,7 @@ from app.config import get_settings
 class MaskResult:
     masked_text: str
     mapping: dict  # pseudonym → original (reverse map for de-anonymization)
+    pii_stats: dict  # entity_type → count e.g. {"PERSON": 2, "EMAIL_ADDRESS": 1}
 
 
 
@@ -50,7 +51,7 @@ class ShieldEngine:
             if r.entity_type not in self._NON_PII_ENTITY_TYPES
         ]
         if not pii_results:
-            return MaskResult(masked_text=text, mapping={})
+            return MaskResult(masked_text=text, mapping={}, pii_stats={})
 
         # Sort spans by start position descending to avoid index shifting during replacement
         sorted_results = sorted(pii_results, key=lambda x: x.start, reverse=True)
@@ -70,7 +71,7 @@ class ShieldEngine:
 
         # Reverse mapping: pseudonym → original (for de-anonymization)
         reverse = {v: k for k, v in forward.items()}
-        return MaskResult(masked_text=masked, mapping=reverse)
+        return MaskResult(masked_text=masked, mapping=reverse, pii_stats=dict(counters))
 
     def deanonymize(self, text: str, mapping: dict) -> str:
         """Restore pseudonyms to originals. Sorts by key length desc to avoid partial matches."""

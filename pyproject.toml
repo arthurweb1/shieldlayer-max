@@ -1,0 +1,23 @@
+[project]
+name = "shieldlayer-gateway"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.29",
+  "pydantic-settings>=2.3",
+  "redis[hiredis]>=5.0",
+  "httpx>=0.27",
+  "presidio-analyzer>=2.2",
+  "presidio-anonymizer>=2.2",
+  "spacy>=3.7",
+  "cryptography>=42.0",
+  "pytest-asyncio>=0.23",
+  "pytest>=8.0",
+  "pytest-env>=1.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["gateway/tests"]
+env = ["GATEWAY_TEST_MODE=1"]

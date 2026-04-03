@@ -1,0 +1,54 @@
+<h2>ShieldLayer Max — Scope Decomposition</h2>
+<p class="subtitle">Your prompt describes 4 independent subsystems. Each needs its own spec → plan → implementation cycle. Which should we build first?</p>
+
+<div class="options">
+  <div class="option" data-choice="wizard" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Setup Wizard (UX Priority)</h3>
+      <p>CLI installer with <code>questionary</code> + Streamlit setup UI + Docker entrypoint that auto-runs wizard on first boot. Makes the product immediately usable by non-technical admins.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Best first because</h4><ul><li>Lowers barrier to entry</li><li>No code changes to existing backend</li><li>Ships a visible wow-factor immediately</li></ul></div>
+        <div class="cons"><h4>Depends on nothing</h4><ul><li>Standalone module</li><li>Can be added without touching existing tests</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="rbac" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Multi-Tenancy & RBAC (Security Priority)</h3>
+      <p>Auth middleware for <code>X-Org-ID</code> / <code>X-User-Role</code> headers, per-org policy routing (Admin-Unit → Cloud, R&D-Unit → Local), and Cache ACL preventing cross-department info leakage.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Best first because</h4><ul><li>Foundational — dashboard and wizard will depend on roles</li><li>Core enterprise requirement</li></ul></div>
+        <div class="cons"><h4>Risk</h4><ul><li>Touches existing routes.py and vector_cache.py</li><li>Needs careful testing to avoid regressions</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="dashboard" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Analytics Dashboard (C-Level Priority)</h3>
+      <p>Streamlit dashboard with cost-savings tracker, EU AI Act compliance heatmap (radar chart), and PII type counters. Read-only view over the PostgreSQL audit log.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Best first because</h4><ul><li>High visual impact for stakeholders</li><li>Reads existing audit_log — no schema changes</li></ul></div>
+        <div class="cons"><h4>Risk</h4><ul><li>Requires Streamlit dependency (new container)</li><li>Cost tracker needs pricing config</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="all" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>All at once, one big spec</h3>
+      <p>Write a single spec covering all 4 subsystems and execute them in sequence.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pro</h4><ul><li>Single planning session</li></ul></div>
+        <div class="cons"><h4>Con</h4><ul><li>Spec becomes unwieldy</li><li>Harder to review and course-correct</li><li>One blocker stops everything</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">Click your preference, then tell me in the terminal. My recommendation: <strong>B → A → C</strong> — RBAC first (other features depend on roles), then Wizard, then Dashboard.</p>

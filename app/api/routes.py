@@ -47,9 +47,11 @@ def _get_state(request: Request):
 
 
 @router.post("/v1/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, state=Depends(_get_state)):
+async def chat(request: Request, body: ChatRequest, state=Depends(_get_state)):
     start = _time.monotonic()
     request_id = str(uuid.uuid4())
+    identity = getattr(request.state, "identity", None)
+    caller_level = identity.level if identity else 0
 
     prompt_text = "\n".join(f"{m.role}: {m.content}" for m in body.messages)
 
@@ -61,7 +63,7 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
     session_id = state.vault.seal_and_schedule(mask_result.mapping)
 
     # 3. Cache lookup
-    cached_response = state.cache.get(masked_prompt)
+    cached_response = state.cache.get(masked_prompt, caller_level=caller_level)
     from_cache = cached_response is not None
 
     if body.stream:
@@ -70,8 +72,9 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
         # then run the full pipeline (compliance, de-anonymize, watermark, audit)
         # on the complete text. This preserves pipeline integrity while still
         # returning a StreamingResponse to the client.
+        active_router = state.router.route_for(identity) if identity else state.router
         chunks = []
-        async for chunk in state.router.stream(masked_prompt):
+        async for chunk in active_router.stream(masked_prompt):
             chunks.append(chunk)
         raw_response = "".join(chunks)
 
@@ -89,6 +92,8 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
                         article_ref=e.article,
                         watermark_seed="N/A",
                         duration_ms=int((_time.monotonic() - start) * 1000),
+                        pii_stats=mask_result.pii_stats,
+                        cached=False,
                     )
                 except Exception as audit_exc:
                     raise HTTPException(
@@ -97,7 +102,7 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
                 raise HTTPException(status_code=451, detail=str(e))
 
             # Cache compliant response
-            state.cache.set(masked_prompt, raw_response)
+            state.cache.set(masked_prompt, raw_response, caller_level=caller_level)
 
             # De-anonymize using vault
             mapping = state.vault.open(session_id)
@@ -117,6 +122,8 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
                     article_ref=None,
                     watermark_seed=watermark_seed,
                     duration_ms=int((_time.monotonic() - start) * 1000),
+                    pii_stats=mask_result.pii_stats,
+                    cached=from_cache,
                 )
             except Exception as exc:
                 raise HTTPException(
@@ -142,7 +149,8 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
         try:
             if not from_cache:
                 # 4. Router call (non-streaming)
-                raw_response = await state.router.complete(masked_prompt)
+                active_router = state.router.route_for(identity) if identity else state.router
+                raw_response = await active_router.complete(masked_prompt)
 
                 # 5. Compliance check (guardian)
                 try:
@@ -158,6 +166,8 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
                             article_ref=e.article,
                             watermark_seed="N/A",
                             duration_ms=int((_time.monotonic() - start) * 1000),
+                            pii_stats=mask_result.pii_stats,
+                            cached=False,
                         )
                     except Exception as audit_exc:
                         raise HTTPException(
@@ -166,7 +176,7 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
                     raise HTTPException(status_code=451, detail=str(e))
 
                 # 6. Store compliant response in cache
-                state.cache.set(masked_prompt, raw_response)
+                state.cache.set(masked_prompt, raw_response, caller_level=caller_level)
             else:
                 raw_response = cached_response
                 compliance = ComplianceResult(compliant=True)
@@ -189,6 +199,8 @@ async def chat(body: ChatRequest, state=Depends(_get_state)):
                     article_ref=None,
                     watermark_seed=watermark_seed,
                     duration_ms=int((_time.monotonic() - start) * 1000),
+                    pii_stats=mask_result.pii_stats,
+                    cached=from_cache,
                 )
             except Exception as exc:
                 raise HTTPException(

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShieldLayer Max</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 320px;
+      background: #0D0D0D;
+      color: #F8F8F8;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .header {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(248,248,248,0.06);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-mark {
+      width: 24px; height: 24px;
+      border: 1.5px solid #DFFF00;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .logo-triangle {
+      width: 9px; height: 9px;
+      background: #DFFF00;
+      clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+    }
+    .logo-name { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #555;
+    }
+    .status-dot.active { background: #DFFF00; box-shadow: 0 0 8px #DFFF00; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .body { padding: 16px; }
+
+    .status-section {
+      border: 1px solid rgba(248,248,248,0.08);
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+    .status-label {
+      font-size: 8px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: rgba(248,248,248,0.3); margin-bottom: 8px;
+    }
+    .status-value {
+      font-size: 13px; font-weight: 700;
+      color: #DFFF00;
+    }
+    .status-value.inactive { color: rgba(248,248,248,0.3); }
+    .status-meta { font-size: 10px; color: rgba(248,248,248,0.3); margin-top: 4px; }
+
+    .stats-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-bottom: 14px;
+    }
+    .stat {
+      border: 1px solid rgba(248,248,248,0.06);
+      padding: 10px;
+    }
+    .stat-n { font-size: 20px; font-weight: 700; color: #DFFF00; }
+    .stat-l { font-size: 8px; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(248,248,248,0.3); margin-top: 2px; }
+
+    .input-group { margin-bottom: 10px; }
+    .input-label {
+      font-size: 8px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: rgba(248,248,248,0.3); margin-bottom: 6px; display: block;
+    }
+    .key-input {
+      width: 100%; background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(248,248,248,0.12);
+      color: #F8F8F8; font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; padding: 8px 10px; outline: none;
+      letter-spacing: 0.06em;
+    }
+    .key-input:focus { border-color: #DFFF00; }
+    .key-input::placeholder { color: rgba(248,248,248,0.15); }
+
+    .btn {
+      width: 100%; padding: 9px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      cursor: pointer; border: 1px solid; transition: all 0.14s;
+    }
+    .btn-primary { background: #DFFF00; border-color: #DFFF00; color: #0D0D0D; }
+    .btn-primary:hover { background: transparent; color: #DFFF00; }
+    .btn-ghost { background: transparent; border-color: rgba(248,248,248,0.1); color: rgba(248,248,248,0.4); margin-top: 6px; }
+    .btn-ghost:hover { border-color: rgba(248,248,248,0.3); color: rgba(248,248,248,0.7); }
+
+    .error { color: #FF2D55; font-size: 10px; margin-top: 6px; letter-spacing: 0.06em; }
+    .success { color: #DFFF00; font-size: 10px; margin-top: 6px; letter-spacing: 0.06em; }
+
+    .footer {
+      padding: 8px 16px;
+      border-top: 1px solid rgba(248,248,248,0.04);
+      font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase;
+      color: rgba(248,248,248,0.15);
+      display: flex; justify-content: space-between;
+    }
+    a { color: rgba(248,248,248,0.3); text-decoration: none; }
+    a:hover { color: #DFFF00; }
+
+    .shield-toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      border: 1px solid rgba(248,248,248,0.08); padding: 10px 12px;
+      margin-bottom: 14px; cursor: pointer;
+    }
+    .shield-toggle:hover { border-color: rgba(223,255,0,0.2); }
+    .toggle-label { font-size: 10px; color: rgba(248,248,248,0.6); letter-spacing: 0.1em; }
+    .toggle-switch {
+      width: 32px; height: 18px;
+      background: rgba(248,248,248,0.1);
+      border-radius: 9px; position: relative;
+      transition: background 0.2s;
+    }
+    .toggle-switch.on { background: #DFFF00; }
+    .toggle-knob {
+      position: absolute; top: 2px; left: 2px;
+      width: 14px; height: 14px;
+      background: #0D0D0D; border-radius: 50%;
+      transition: left 0.2s;
+    }
+    .toggle-switch.on .toggle-knob { left: 16px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <div class="logo-mark"><div class="logo-triangle"></div></div>
+      <span class="logo-name">ShieldLayer</span>
+    </div>
+    <div class="status-dot" id="statusDot"></div>
+  </div>
+
+  <div class="body">
+    <!-- Status -->
+    <div class="status-section" id="statusSection">
+      <div class="status-label">Status</div>
+      <div class="status-value inactive" id="statusValue">NOT ACTIVATED</div>
+      <div class="status-meta" id="statusMeta">Enter your license key below</div>
+    </div>
+
+    <!-- Stats (shown when active) -->
+    <div class="stats-row" id="statsRow" style="display:none">
+      <div class="stat">
+        <div class="stat-n" id="statPii">0</div>
+        <div class="stat-l">PII Masked</div>
+      </div>
+      <div class="stat">
+        <div class="stat-n" id="statSeats">—</div>
+        <div class="stat-l">Seats</div>
+      </div>
+    </div>
+
+    <!-- Shield toggle (shown when active) -->
+    <div class="shield-toggle" id="shieldToggle" style="display:none" onclick="toggleShield()">
+      <span class="toggle-label">■ SHIELD ACTIVE</span>
+      <div class="toggle-switch on" id="toggleSwitch">
+        <div class="toggle-knob"></div>
+      </div>
+    </div>
+
+    <!-- License input (shown when inactive) -->
+    <div id="licenseForm">
+      <div class="input-group">
+        <label class="input-label" for="keyInput">License Key</label>
+        <input class="key-input" id="keyInput" type="text" placeholder="SL-XXXX-XXXX-XXXX-XXXX" />
+      </div>
+      <button class="btn btn-primary" onclick="activate()">▶ Activate License</button>
+      <div class="error" id="errorMsg" style="display:none"></div>
+      <div class="success" id="successMsg" style="display:none"></div>
+    </div>
+
+    <!-- Deactivate button (shown when active) -->
+    <div id="activeActions" style="display:none">
+      <button class="btn btn-ghost" onclick="deactivate()">Deactivate License</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>ShieldLayer Max v1.0</span>
+    <a href="https://shieldlayer.ai" target="_blank">shieldlayer.ai</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
