@@ -35,3 +35,7 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+
+# Claude Code / Superpowers internals
+.superpowers/
+.claude/launch.json
