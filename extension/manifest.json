@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "ShieldLayer Max",
+  "version": "1.0.0",
+  "description": "Ghost Mode — real-time PII masking for AI interfaces",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["ghost_mode.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "",
+    "default_icon": {
+      "16": "icons/shield16.png",
+      "48": "icons/shield48.png",
+      "128": "icons/shield128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/shield16.png",
+    "48": "icons/shield48.png",
+    "128": "icons/shield128.png"
+  }
+}

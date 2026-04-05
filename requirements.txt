@@ -1,0 +1,15 @@
+fastapi==0.135.3
+uvicorn[standard]==0.43.0
+httpx==0.28.1
+pydantic==2.12.5
+pydantic-settings==2.13.1
+redis[asyncio]==7.4.0
+presidio-analyzer==2.2.355
+presidio-anonymizer==2.2.355
+spacy==3.8.13
+faiss-cpu==1.13.2
+sentence-transformers==5.3.0
+numpy==2.2.1
+openai==1.109.1
+anthropic==0.89.0
+python-dotenv==1.0.1
